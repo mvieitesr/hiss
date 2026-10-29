@@ -73,12 +73,16 @@ def test_issue_rejects_non_string_enums(client, api_resources, method, path, fie
         ("PATCH", "/api/v1/comments/{comment_id}", {}, "body"),
     ],
 )
-@pytest.mark.parametrize("value", [[], {}, 7, True])
-def test_json_fields_reject_wrong_types(client, api_resources, method, path, payload, field, value):
+@pytest.mark.parametrize("value", [[], {}, 7, True, None])
+def test_json_fields_validate_types(client, api_resources, method, path, payload, field, value):
     response = client.open(
         path.format(**api_resources), method=method, json={**payload, field: value}
     )
 
+    if field == "description" and value is None:
+        assert response.status_code == (201 if method == "POST" else 200)
+        assert response.get_json()["description"] == ""
+        return
     assert response.status_code == 400
     assert response.is_json
     assert response.get_json()["error"] == "bad_request"
