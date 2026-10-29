@@ -39,7 +39,7 @@ def h02(api, page, suffix):
 
 
 def h06(api, page, suffix):
-    key = f"A{suffix}"
+    key = f"C{suffix}"
     post(api, "projects", {"key": key, "name": "Race project"})
     issue_a = post(api, f"projects/{key}/issues", {"title": "Race issue A"})
     issue_b = post(api, f"projects/{key}/issues", {"title": "Race issue B"})
@@ -110,6 +110,66 @@ def h06(api, page, suffix):
     assert page.get_by_text("old failure").count() == 0
 
 
+def h06_aba(api, page, suffix):
+    key = f"N{suffix}"
+    post(api, "projects", {"key": key, "name": "ABA project"})
+    issue_a = post(api, f"projects/{key}/issues", {"title": "Old A"})
+    issue_b = post(api, f"projects/{key}/issues", {"title": "ABA B"})
+    held = []
+
+    def hold_first(route):
+        if not held:
+            held.append((route, route.fetch()))
+        else:
+            route.continue_()
+
+    page.goto(f"{BASE}/#/projects")
+    page.locator(".project-list-row").filter(has_text="ABA project").wait_for()
+    page.route(f"**/api/v1/issues/{issue_a['id']}", hold_first)
+    page.evaluate(f"location.hash = '#/issues/{issue_a['id']}'")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(10)
+    assert held, "first A request was not intercepted"
+    page.evaluate(f"location.hash = '#/issues/{issue_b['id']}'")
+    page.get_by_role("heading", name="ABA B").wait_for()
+    api.patch(f"issues/{issue_a['id']}", json={"title": "New A"}).raise_for_status()
+    page.evaluate(f"location.hash = '#/issues/{issue_a['id']}'")
+    page.get_by_role("heading", name="New A").wait_for()
+    held[0][0].fulfill(response=held[0][1])
+    page.wait_for_load_state("networkidle")
+    assert page.get_by_role("heading", name="New A").count() == 1, (
+        "old A response overwrote newer A after navigating A → B → A"
+    )
+
+
+def h06_project(api, page, suffix):
+    key_a, key_b = f"G{suffix}", f"H{suffix}"
+    post(api, "projects", {"key": key_a, "name": "Project race A"})
+    post(api, "projects", {"key": key_b, "name": "Project race B"})
+    issue = post(api, f"projects/{key_a}/issues", {"title": "Project race issue"})
+    held = []
+    page.goto(f"{BASE}/#/projects/{key_a}")
+    page.get_by_text("Project race issue", exact=True).wait_for()
+    page.route(f"**/api/v1/projects/{key_b}/issues", lambda route: held.append(route))
+    page.evaluate(f"location.hash = '#/projects/{key_b}'")
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(10)
+    assert held, "Project B issues request was not intercepted"
+    page.evaluate(f"location.hash = '#/issues/{issue['id']}'")
+    page.get_by_role("heading", name="Project race issue").wait_for()
+    response = api.get(f"projects/{key_b}/issues")
+    response.raise_for_status()
+    held[0].fulfill(status=200, content_type="application/json", body=response.text)
+    page.wait_for_load_state("networkidle")
+    assert page.get_by_role("heading", name="Project race issue").count() == 1, (
+        "late Project B issue list replaced the Issue detail"
+    )
+
+
 def h07_error(api, page, suffix):
     key_a, key_b = f"A{suffix}", f"B{suffix}"
     post(api, "projects", {"key": key_a, "name": "Project A"})
@@ -142,7 +202,7 @@ def h07_flag(api, page, suffix):
     def flag_off(route):
         params = parse_qs(urlparse(route.request.url).query)
         requests.append(params)
-        if "label" in params:
+        if "label" in params and not os.environ.get("HISS_REAL_FLAG_OFF"):
             route.fulfill(
                 status=400,
                 content_type="application/json",
@@ -159,7 +219,7 @@ def h07_flag(api, page, suffix):
     page.get_by_text("Done issue", exact=True).wait_for(state="detached")
     page.locator(".filter-toggle-btn").click()
     page.locator("#filterLabel").select_option(label)
-    page.get_by_text("Label filtering disabled", exact=True).wait_for()
+    page.locator(".alert-warning").wait_for()
     page.wait_for_load_state("networkidle")
     assert page.locator("#filterLabel").input_value() == "", "disabled Label still selected"
     assert page.locator("#filterStatus").input_value() == "open", "status filter was lost"
@@ -205,10 +265,98 @@ def h04(api, page, suffix):
     assert page.locator("#editTitleInput").get_attribute("maxlength") == "300"
 
 
+def happy(api, page, suffix):
+    key, label = f"P{suffix}".upper(), f"label-{suffix}'<>&\""
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.goto(f"{BASE}/#/projects")
+    page.get_by_role("heading", name="Projects", exact=True).wait_for()
+    page.get_by_role("button", name="New project").click()
+    page.locator("#projectKeyInput").fill(key)
+    page.locator("#projectNameInput").fill("Browser project")
+    page.locator("#createProjectModal button[type=submit]").click()
+    page.get_by_role("heading", name="Browser project").wait_for()
+    page.locator("#createProjectModal").wait_for(state="hidden")
+    assert any(p["key"] == key for p in api.get("projects").json())
+
+    page.get_by_role("button", name="New issue").click()
+    page.locator("#issueTitleInput").fill("Browser issue")
+    page.locator("#issueDescriptionInput").fill("First description")
+    page.locator("#issuePrioritySelect").select_option("high")
+    page.locator("#createIssueModal button[type=submit]").click()
+    page.get_by_role("heading", name="Browser issue").wait_for()
+    page.locator("#createIssueModal").wait_for(state="hidden")
+    issue_id = api.get(f"projects/{key}/issues").json()[0]["id"]
+
+    page.locator(".detail-title-actions button").click()
+    page.locator("#editTitleInput").fill("Edited browser issue")
+    page.locator(".detail-title-edit-form button[type=submit]").click()
+    page.get_by_role("heading", name="Edited browser issue").wait_for()
+    page.locator(".timeline-box").filter(has_text="Description").get_by_role("button", name="Edit").click()
+    page.locator("#editDescriptionInput").fill("Edited description")
+    page.locator(".timeline-edit-form button[type=submit]").click()
+    page.get_by_text("Edited description", exact=True).wait_for()
+    page.locator("#issueStatusSelect").select_option("done")
+    page.locator(".detail-title-meta .status-badge").get_by_text("Done", exact=True).wait_for()
+    page.locator("#issuePrioritySelectDetail").select_option("low")
+    page.locator(".detail-title-meta .priority-badge").get_by_text("Low", exact=True).wait_for()
+    issue = api.get(f"issues/{issue_id}").json()
+    assert (issue["title"], issue["description"], issue["status"], issue["priority"]) == (
+        "Edited browser issue", "Edited description", "done", "low"
+    )
+
+    page.locator("#commentBodyInput").fill("Browser comment")
+    page.get_by_role("button", name="Comment", exact=True).click()
+    page.get_by_text("Browser comment", exact=True).wait_for()
+    comment = api.get(f"issues/{issue_id}/comments").json()[0]
+    page.locator(".timeline-box").filter(has_text="Browser comment").get_by_role("button", name="Edit").click()
+    page.locator(f"#editCommentInput_{comment['id']}").fill("Edited browser comment")
+    page.locator(".timeline-edit-form button[type=submit]").click()
+    page.get_by_text("Edited browser comment", exact=True).wait_for()
+    assert api.get(f"issues/{issue_id}/comments").json()[0]["body"] == "Edited browser comment"
+    page.locator(".timeline-box").filter(has_text="Edited browser comment").get_by_role("button", name="Delete").click()
+    page.get_by_text("Edited browser comment", exact=True).wait_for(state="detached")
+    assert api.get(f"issues/{issue_id}/comments").json() == []
+
+    page.get_by_role("button", name="Manage", exact=True).click()
+    page.locator("#manageLabelsModal").wait_for(state="visible")
+    page.locator("#newLabelNameInput").fill(label)
+    page.locator("#createLabelForm button[type=submit]").click()
+    page.locator("#labelsListContainer").get_by_text(label, exact=True).wait_for()
+    page.locator("#manageLabelsModal").get_by_role("button", name="Done").click()
+    page.locator("#manageLabelsModal").wait_for(state="hidden")
+    page.wait_for_load_state("networkidle")
+    page.locator("#attachLabelSelect").select_option(label)
+    page.locator(".label-attach-row button").click()
+    page.locator(".sidebar-labels").get_by_text(label, exact=True).wait_for()
+    assert api.get(f"issues/{issue_id}").json()["labels"][0]["name"] == label
+    page.locator(".sidebar-labels button").click()
+    page.get_by_text("No labels attached", exact=True).wait_for()
+    assert api.get(f"issues/{issue_id}").json()["labels"] == []
+    page.locator("#attachLabelSelect").select_option(label)
+    page.locator(".label-attach-row button").click()
+    page.locator(".sidebar-labels").get_by_text(label, exact=True).wait_for()
+    page.get_by_role("button", name="Manage", exact=True).click()
+    page.locator("#manageLabelsModal").wait_for(state="visible")
+    page.locator("#labelsListContainer .label-pill").filter(has_text=label).locator("button").click()
+    page.locator("#labelsListContainer").get_by_text(label, exact=True).wait_for(state="detached")
+    assert api.get(f"issues/{issue_id}").json()["labels"] == []
+    page.locator("#manageLabelsModal").get_by_role("button", name="Done").click()
+    page.locator("#manageLabelsModal").wait_for(state="hidden")
+
+    page.get_by_role("button", name="Delete issue").click()
+    page.get_by_role("heading", name="Browser project").wait_for()
+    assert api.get(f"issues/{issue_id}").status_code == 404
+    page.get_by_role("link", name="Projects", exact=True).first.click()
+    page.locator(".project-list-row").filter(has_text="Browser project").locator("button").click()
+    page.get_by_text("Browser project", exact=True).wait_for(state="detached")
+    assert not any(p["key"] == key for p in api.get("projects").json())
+
+
 def main():
     checks = {
-        "H02": h02, "H06": h06, "H07-error": h07_error, "H07-flag": h07_flag,
-        "H10": h10, "H04": h04,
+        "H02": h02, "H06": h06, "H06-aba": h06_aba, "H06-project": h06_project,
+        "H07-error": h07_error, "H07-flag": h07_flag, "H10": h10, "H04": h04,
+        "happy": happy,
     }
     requested = sys.argv[1:] or list(checks)
     unknown = set(requested) - checks.keys()
@@ -221,8 +369,11 @@ def main():
         try:
             for name in requested:
                 page = browser.new_page()
+                errors = []
+                page.on("pageerror", lambda error, errors=errors: errors.append(str(error)))
                 try:
                     checks[name](api, page, suffix)
+                    assert not errors, f"JavaScript errors: {errors}"
                     print(f"PASS {name}", flush=True)
                 except (AssertionError, httpx.HTTPError, PlaywrightError) as error:
                     failures.append(name)
@@ -233,7 +384,7 @@ def main():
             browser.close()
             projects = api.get("projects").json()
             for project in projects:
-                if suffix in project["key"]:
+                if suffix.lower() in project["key"].lower():
                     response = api.delete("projects/" + quote(project["key"], safe=""))
                     response.raise_for_status()
             labels = api.get("labels").json()
