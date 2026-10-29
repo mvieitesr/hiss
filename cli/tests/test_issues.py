@@ -84,6 +84,42 @@ def test_issues_list_basic(monkeypatch):
     assert "open" in result.output
 
 
+def test_issues_list_renders_title_as_literal_text(monkeypatch):
+    def handler(request: httpx.Request):
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 1,
+                    "title": "Text [/no-such-tag]",
+                    "status": "open",
+                    "priority": "medium",
+                    "labels": [],
+                }
+            ],
+            request=request,
+        )
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, ["issues", "list", "--project", "AUD"])
+    assert result.exit_code == 0
+    assert "Text [/no-such-tag]" in result.stdout
+
+
+def test_issues_list_renders_project_in_table_title_as_literal_text(monkeypatch):
+    def handler(request: httpx.Request):
+        return httpx.Response(
+            200,
+            json=[{"id": 1, "title": "T", "status": "open", "priority": "medium", "labels": []}],
+            request=request,
+        )
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, ["issues", "list", "--project", "[/no-such-tag]"])
+    assert result.exit_code == 0
+    assert "Issues in [/no-such-tag]" in result.stdout
+
+
 def test_issues_list_with_filters(monkeypatch):
     def handler(request: httpx.Request):
         assert request.url.path == "/api/v1/projects/OPS/issues"
