@@ -57,6 +57,37 @@ def test_slots_wait_for_a_single_migration_job():
     assert services["migrate"]["entrypoint"][0] == "alembic"
 
 
+def test_example_uses_distinct_published_tags():
+    config = json.loads(
+        run(*COMPOSE, "--env-file", str(DEMO / ".env.example"), "config", "--format", "json").stdout
+    )
+    assert config["services"]["blue"]["image"].endswith(":0.1.0")
+    assert config["services"]["green"]["image"].endswith(":0.1.1")
+    assert config["services"]["migrate"]["image"].endswith(":0.1.1")
+
+
+def test_image_repository_can_be_overridden():
+    env = os.environ.copy()
+    env["IMAGE"] = "ghcr.io/student/hiss"
+    result = subprocess.run(
+        [*COMPOSE, "config", "--format", "json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    services = json.loads(result.stdout)["services"]
+    for service in ("blue", "green", "migrate"):
+        assert services[service]["image"].startswith("ghcr.io/student/hiss:")
+
+
+def test_guides_use_compose_wait():
+    for guide in (DEMO / "README.es.md", DEMO.parents[1] / "docs/teacher/blue-green-guide.md"):
+        text = guide.read_text()
+        assert "up -d --wait --wait-timeout 60" in text
+        assert "timeout 60 bash -c" not in text
+
+
 def test_status_uses_proxy_configuration():
     run(str(DEMO / "switch.sh"), "switch", "green")
     run(

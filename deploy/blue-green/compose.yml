@@ -28,7 +28,7 @@ services:
   # Run migrations once before either slot starts. The deployed tag can override
   # MIGRATE_TAG so its migrations run before replacing the inactive slot.
   migrate:
-    image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${MIGRATE_TAG:-${GREEN_TAG:-0.1.0}}
+    image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${MIGRATE_TAG:-${GREEN_TAG:-0.1.1}}
     entrypoint: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
     depends_on:
       db:
@@ -59,14 +59,14 @@ services:
     restart: unless-stopped
 
   green:
-    image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${GREEN_TAG:-0.1.0}
+    image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${GREEN_TAG:-0.1.1}
     entrypoint: ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "app.wsgi:app"]
     depends_on:
       migrate:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}
-      APP_VERSION: ${GREEN_TAG:-0.1.0}
+      APP_VERSION: ${GREEN_TAG:-0.1.1}
       FEATURE_LABEL_FILTERING: ${FEATURE_LABEL_FILTERING:-true}
       POSTGRES_DB: ${POSTGRES_DB:-hiss}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
