@@ -25,7 +25,7 @@ Requisitos docentes:
 - El estudiante debe poder seguir `docs/setup.md` en su portátil macOS o
   Linux sin cuenta cloud.
 - El runner debe tener `Docker Compose v2` y `curl`/`jq` para los smoke
-  tests (`curl --fail .../healthz|/readyz|/version | jq --arg expected`).
+  tests (`curl --fail .../healthz|/readyz|/version | jq -e --arg expected`).
 - `prod` debe distinguir Delivery de Deployment con un gate manual.
 
 ## Decisión

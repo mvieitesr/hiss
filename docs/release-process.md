@@ -11,7 +11,7 @@ requiere los artefactos, credenciales y ajustes indicados antes de ejecutar los 
 ## Artefacto, tags y ciclo de vida
 
 Toda entrega pasa por el mismo `deploy/compose.yml` con distinta
-configuración. `cd-dev` construye y publica la imagen SHA8 en `_build-push.yml`; staging y prod vuelven a etiquetar ese mismo digest sin reconstruir:
+configuración. `cd-dev` construye y publica la imagen SHA8 en `_build-push.yml` si aún no existe; en reejecuciones verifica la revisión OCI completa y reutiliza su digest sin reconstruir. Staging y prod vuelven a etiquetar ese mismo digest:
 
 | Origen | Tag de imagen / `APP_VERSION` | Workflow | Environment |
 | --- | --- | --- | --- |

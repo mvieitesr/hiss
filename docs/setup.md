@@ -115,7 +115,7 @@ En un fork registra un runner propio y usa `tu-usuario/hiss` en los comandos; ve
 
 - **Docker Engine + plugin Compose** compatible con `docker compose` y accesible al usuario del runner.
 - **`curl` y `jq`** — necesarios para los smoke tests de los workflows
-  (`curl --fail .../healthz` y `jq --arg expected`). En macOS:
+  (`curl --fail .../healthz` y `jq -e --arg expected`). En macOS:
   `brew install curl jq`; en Debian/Ubuntu:
   `sudo apt-get update && sudo apt-get install -y curl jq`.
 - Sistema operativo soportado: **macOS (Intel o Apple Silicon)** y

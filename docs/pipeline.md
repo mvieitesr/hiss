@@ -113,7 +113,7 @@ permissions:
   packages: write
 ```
 
-Con `source_tag` vacío, el job construye el `ref` y publica el tag mediante `docker/build-push-action@v6`. Si se pasa `source_tag`, consulta su digest, comprueba que la etiqueta OCI `org.opencontainers.image.revision` corresponda al SHA completo de `ref` y crea el Release Tag con `imagetools create`; después comprueba que el digest no haya cambiado. Si no existe la imagen SHA8 o falta/no coincide la revisión, falla. Los callers pasan `contents: read` y `packages: write` al job reutilizable; no usan `secrets: inherit`. El `GITHUB_TOKEN` está disponible automáticamente. Ver `docs/teacher/workflow-refactor-lesson.md` para el refactor histórico.
+Con `source_tag` vacío, el job consulta el tag SHA8: si no existe, construye el `ref` y lo publica mediante `docker/build-push-action@v6`; en las reejecuciones reutiliza el digest ya publicado tras verificar la revisión OCI completa. Si la revisión falta o no coincide, o no se puede consultar el registro, falla sin reconstruir. Si se pasa `source_tag`, consulta su digest, comprueba que la etiqueta OCI `org.opencontainers.image.revision` corresponda al SHA completo de `ref` y crea el Release Tag con `imagetools create`; después comprueba que el digest no haya cambiado. Si no existe la imagen SHA8 o falta/no coincide la revisión, falla. Los callers pasan `contents: read` y `packages: write` al job reutilizable; no usan `secrets: inherit`. El `GITHUB_TOKEN` está disponible automáticamente. Ver `docs/teacher/workflow-refactor-lesson.md` para el refactor histórico.
 
 ### `cd-dev.yml`, `cd-staging.yml`, `cd-prod.yml`
 
@@ -213,7 +213,7 @@ por `app/app/api/probes.py`:
   base de datos no es alcanzable.
 - `GET /version` — devuelve `{"version": "<APP_VERSION>"}`; el smoke test
   comprueba `jq --exit-status --arg expected \"$DEPLOY_TAG\" '.version == $expected'`
-  (forma corta: `jq --arg expected`). Es una comprobación de la configuración de runtime, no prueba independiente del SHA ni del digest; estos se verifican en la promoción.
+  (forma corta: `jq -e --arg expected`). Es una comprobación de la configuración de runtime, no prueba independiente del SHA ni del digest; estos se verifican en la promoción.
 
 La healthcheck de Compose en `deploy/compose.yml` usa
 `python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/healthz\")'`
@@ -233,7 +233,7 @@ curl --fail --silent --show-error --max-time 10 --retry 10 --retry-delay 2 --ret
 curl --fail --silent --show-error --max-time 10 --retry 10 --retry-delay 2 --retry-connrefused "$BASE_URL/readyz"
 curl --fail --silent --show-error --max-time 10 --retry 10 --retry-delay 2 --retry-connrefused "$BASE_URL/version" \
   | jq --exit-status --arg expected "$DEPLOY_TAG" '.version == $expected' >/dev/null
-# forma mínima equivalente: jq --arg expected "$DEPLOY_TAG" '.version == $expected'
+# forma mínima equivalente: jq -e --arg expected "$DEPLOY_TAG" '.version == $expected'
 ```
 
 ## Invariantes y convenciones
