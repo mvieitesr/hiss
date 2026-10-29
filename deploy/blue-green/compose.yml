@@ -94,11 +94,24 @@ services:
       - "${BLUE_GREEN_PORT:-9000}:80"
     volumes:
       - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - proxy-state:/var/lib/hiss-blue-green
     environment:
       ACTIVE_SLOT: ${ACTIVE_SLOT:-blue}
-    # Render the template with explicit envsubst (only ACTIVE_SLOT) then run nginx.
-    # Use $$ to escape Compose interpolation so the container sees ${ACTIVE_SLOT}.
-    command: /bin/sh -c "envsubst '$${ACTIVE_SLOT}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    # A project-scoped volume retains the selected slot across proxy recreation.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -f /var/lib/hiss-blue-green/active-slot ]; then
+          ACTIVE_SLOT=$$(cat /var/lib/hiss-blue-green/active-slot)
+        fi
+        case "$$ACTIVE_SLOT" in
+          blue|green) ;;
+          *) echo "Invalid active slot: $$ACTIVE_SLOT" >&2; exit 1 ;;
+        esac
+        export ACTIVE_SLOT
+        envsubst '$${ACTIVE_SLOT}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf
+        exec nginx -g 'daemon off;'
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/healthz || wget -qO- http://127.0.0.1:80/ || exit 1"]
       interval: 10s
@@ -108,3 +121,4 @@ services:
 
 volumes:
   pgdata:
+  proxy-state:

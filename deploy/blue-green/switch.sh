@@ -8,7 +8,7 @@
 #
 # Notes:
 # - Compatible with bash 3.2 (macOS) and bash 5 (Linux). No readarray, no GNU-only sed.
-# - State is stored in deploy/blue-green/.active-slot (gitignored), default "blue".
+# - The proxy's project-scoped volume persists the selected slot (default "blue").
 # - Only the nginx proxy publishes a host port (default 9000, override with BLUE_GREEN_PORT).
 # - Images are public on ghcr.io — no docker login needed.
 set -euo pipefail
@@ -16,7 +16,6 @@ set -euo pipefail
 # Resolve script and compose locations so the script works from any cwd.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/compose.yml"
-ACTIVE_FILE="$SCRIPT_DIR/.active-slot"
 # Host port for smoke tests; matches ${BLUE_GREEN_PORT:-9000} in compose.yml
 PORT="${BLUE_GREEN_PORT:-9000}"
 
@@ -59,25 +58,20 @@ Examples:
 EOF
 }
 
-# Read active slot from file, default to blue. Validates content.
+# Read the actual proxy configuration, not the persisted startup preference.
 get_active() {
-  if [ -f "$ACTIVE_FILE" ]; then
-    # Trim whitespace/newlines, take first word
-    local val
-    val="$(tr -d ' \t\r\n' < "$ACTIVE_FILE" 2>/dev/null || echo "blue")"
-    case "$val" in
-      blue|green) echo "$val" ;;
-      *) echo "blue" ;;
-    esac
-  else
-    echo "blue"
+  local slot
+  if ! slot="$(docker compose -f "$COMPOSE_FILE" exec -T proxy awk '
+    $1 == "proxy_pass" && $2 == "http://blue:8000;" { print "blue" }
+    $1 == "proxy_pass" && $2 == "http://green:8000;" { print "green" }
+  ' /etc/nginx/conf.d/default.conf)"; then
+    printf "Error: cannot read the running proxy; start the demo first.\n" >&2
+    return 1
   fi
-}
-
-# Persist active slot (atomic via printf)
-set_active() {
-  local slot="$1"
-  printf "%s\n" "$slot" > "$ACTIVE_FILE"
+  case "$slot" in
+    blue|green) printf '%s\n' "$slot" ;;
+    *) printf "Error: proxy configuration has no unique active slot.\n" >&2; return 1 ;;
+  esac
 }
 
 # Print status with color and extra context
@@ -89,12 +83,7 @@ do_status() {
   else
     printf "Active slot: ${GREEN}green${RESET} (port %s -> green:8000)\n" "$PORT"
   fi
-  # Show file location for teaching
-  if [ -f "$ACTIVE_FILE" ]; then
-    printf "State file: %s\n" "$ACTIVE_FILE"
-  else
-    printf "State file: (default, %s not yet created)\n" "$ACTIVE_FILE"
-  fi
+  printf "Startup state: project-scoped proxy-state volume\n"
   # Optional: show running containers if docker is available
   if command -v docker >/dev/null 2>&1; then
     docker compose -f "$COMPOSE_FILE" ps 2>/dev/null || true
@@ -162,10 +151,7 @@ do_switch() {
   # Note: the single quotes around \${ACTIVE_SLOT} are for the container's shell;
   # we escape $ for compose (via $$ in compose.yml) but here we are inside
   # the container's shell directly, so we use standard '${ACTIVE_SLOT}'.
-  docker compose -f "$COMPOSE_FILE" exec -T proxy sh -c "ACTIVE_SLOT=$target envsubst '\${ACTIVE_SLOT}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -s reload"
-
-  # Persist new active slot
-  set_active "$target"
+  docker compose -f "$COMPOSE_FILE" exec -T proxy sh -c "ACTIVE_SLOT=$target envsubst '\${ACTIVE_SLOT}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -s reload && printf '%s\\n' '$target' > /var/lib/hiss-blue-green/active-slot"
 
   # Confirmation with color
   if [ "$target" = "blue" ]; then

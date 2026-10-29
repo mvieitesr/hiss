@@ -31,3 +31,28 @@ def test_slots_wait_for_a_single_migration_job():
         assert services[slot]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
         assert services[slot]["entrypoint"][0] == "gunicorn"
     assert services["migrate"]["entrypoint"][0] == "alembic"
+
+
+def test_status_uses_proxy_configuration():
+    run(str(DEMO / "switch.sh"), "switch", "green")
+    run(
+        *COMPOSE,
+        "exec",
+        "-T",
+        "proxy",
+        "sh",
+        "-c",
+        "ACTIVE_SLOT=blue envsubst '${ACTIVE_SLOT}' < /etc/nginx/templates/nginx.conf.template "
+        "> /etc/nginx/conf.d/default.conf && nginx -s reload",
+    )
+    assert "Active slot: blue" in run(str(DEMO / "switch.sh"), "status").stdout
+    run(str(DEMO / "switch.sh"), "switch", "green")
+    assert "Active slot: green" in run(str(DEMO / "switch.sh"), "status").stdout
+
+
+def test_active_slot_survives_proxy_recreation():
+    run(str(DEMO / "switch.sh"), "switch", "green")
+    run(*COMPOSE, "up", "-d", "--no-deps", "--force-recreate", "proxy")
+    config = run(*COMPOSE, "exec", "-T", "proxy", "cat", "/etc/nginx/conf.d/default.conf").stdout
+    assert "proxy_pass http://green:8000;" in config
+    assert "Active slot: green" in run(str(DEMO / "switch.sh"), "status").stdout
