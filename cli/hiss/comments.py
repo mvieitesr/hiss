@@ -19,7 +19,7 @@ def list_comments(
     base_url = hiss.client.get_base_url_for_ctx(ctx)
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.get(f"/api/v1/issues/{issue_id}/comments")
+            resp = client.get(f"/api/v1/issues/{hiss.client.path_segment(issue_id)}/comments")
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
@@ -48,7 +48,9 @@ def add_comment(
     payload = {"body": body}
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.post(f"/api/v1/issues/{issue_id}/comments", json=payload)
+            resp = client.post(
+                f"/api/v1/issues/{hiss.client.path_segment(issue_id)}/comments", json=payload
+            )
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
@@ -71,7 +73,9 @@ def update_comment(
     base_url = hiss.client.get_base_url_for_ctx(ctx)
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.patch(f"/api/v1/comments/{comment_id}", json={"body": body})
+            resp = client.patch(
+                f"/api/v1/comments/{hiss.client.path_segment(comment_id)}", json={"body": body}
+            )
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
@@ -93,7 +97,7 @@ def delete_comment(
     base_url = hiss.client.get_base_url_for_ctx(ctx)
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.delete(f"/api/v1/comments/{comment_id}")
+            resp = client.delete(f"/api/v1/comments/{hiss.client.path_segment(comment_id)}")
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)

@@ -7,12 +7,18 @@ Zero domain logic: no validation, just HTTP + error mapping.
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 import httpx
 import typer
 
 DEFAULT_URL = "http://localhost:8000"
 API_PREFIX = "/api/v1"
+
+
+def path_segment(value: str | int) -> str:
+    """Encode a single dynamic URL path segment."""
+    return quote(str(value), safe="")
 
 
 def get_base_url(ctx_url: str | None) -> str:

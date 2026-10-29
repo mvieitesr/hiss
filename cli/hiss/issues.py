@@ -31,7 +31,8 @@ def list_issues(
     try:
         with hiss.client.get_client(ctx) as client:
             resp = client.get(
-                f"/api/v1/projects/{project}/issues", params=params if params else None
+                f"/api/v1/projects/{hiss.client.path_segment(project)}/issues",
+                params=params if params else None,
             )
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
@@ -79,7 +80,9 @@ def create_issue(
         payload["priority"] = priority
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.post(f"/api/v1/projects/{project}/issues", json=payload)
+            resp = client.post(
+                f"/api/v1/projects/{hiss.client.path_segment(project)}/issues", json=payload
+            )
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
@@ -121,7 +124,9 @@ def update_issue(
         payload["description"] = description
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.patch(f"/api/v1/issues/{issue_id}", json=payload)
+            resp = client.patch(
+                f"/api/v1/issues/{hiss.client.path_segment(issue_id)}", json=payload
+            )
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
@@ -150,7 +155,7 @@ def delete_issue(
     base_url = hiss.client.get_base_url_for_ctx(ctx)
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.delete(f"/api/v1/issues/{issue_id}")
+            resp = client.delete(f"/api/v1/issues/{hiss.client.path_segment(issue_id)}")
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
@@ -171,7 +176,10 @@ def label_issue(
     base_url = hiss.client.get_base_url_for_ctx(ctx)
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.post(f"/api/v1/issues/{issue_id}/labels/{name}")
+            resp = client.post(
+                f"/api/v1/issues/{hiss.client.path_segment(issue_id)}/labels/"
+                f"{hiss.client.path_segment(name)}"
+            )
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
@@ -196,7 +204,10 @@ def unlabel_issue(
     base_url = hiss.client.get_base_url_for_ctx(ctx)
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.delete(f"/api/v1/issues/{issue_id}/labels/{name}")
+            resp = client.delete(
+                f"/api/v1/issues/{hiss.client.path_segment(issue_id)}/labels/"
+                f"{hiss.client.path_segment(name)}"
+            )
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)
