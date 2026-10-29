@@ -29,13 +29,28 @@ def h02(api, page, suffix):
     key = f"x{suffix}');window.__auditXss=1;void('"
     post(api, "projects", {"key": key, "name": "XSS demo"})
     dialogs = []
-    page.on("dialog", lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
+    accept = [False]
+
+    def handle_dialog(dialog):
+        dialogs.append(dialog.message)
+        if accept[0]:
+            dialog.accept()
+        else:
+            dialog.dismiss()
+
+    page.on("dialog", handle_dialog)
     page.goto(f"{BASE}/#/projects")
     button = page.locator(".project-list-row").filter(has_text="XSS demo").locator("button")
     button.click()
     marker = page.evaluate("window.__auditXss || 0")
     assert marker == 0, f"stored project key executed JavaScript: {marker}"
     assert len(dialogs) == 1 and key in dialogs[0], f"wrong Project in confirmation: {dialogs}"
+    accept[0] = True
+    button.click()
+    button.wait_for(state="detached")
+    assert len(dialogs) == 2 and key in dialogs[1]
+    assert not any(project["key"] == key for project in api.get("projects").json())
+    assert page.evaluate("location.hash") == "#/projects"
 
 
 def h06(api, page, suffix):
