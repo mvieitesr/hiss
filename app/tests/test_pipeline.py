@@ -135,14 +135,15 @@ def test_dev_requires_explicit_sha_tag_and_version():
         "config",
         "-q",
     ]
-    missing = subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True)
-    assert missing.returncode != 0
-    assert "IMAGE_TAG" in missing.stderr
-    env["IMAGE_TAG"] = "789749c4"
-    missing_version = subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True)
-    assert missing_version.returncode != 0
-    assert "APP_VERSION" in missing_version.stderr
-    env["APP_VERSION"] = "789749c4"
+    # Set one variable at a time: Compose versions differ in which missing
+    # variable they report first.
+    for present, missing in (("APP_VERSION", "IMAGE_TAG"), ("IMAGE_TAG", "APP_VERSION")):
+        result = subprocess.run(
+            command, cwd=ROOT, env={**env, present: "789749c4"}, text=True, capture_output=True
+        )
+        assert result.returncode != 0
+        assert missing in result.stderr
+    env.update(IMAGE_TAG="789749c4", APP_VERSION="789749c4")
     assert subprocess.run(command, cwd=ROOT, env=env, capture_output=True).returncode == 0
 
 
