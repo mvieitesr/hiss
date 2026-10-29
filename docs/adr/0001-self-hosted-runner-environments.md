@@ -4,6 +4,8 @@
 - **Fecha:** 2025-09-01
 - **Decisores:** Equipo docente, mantenedores del repo
 
+> **Actualización:** La decisión de usar runners y Environments sigue vigente. El pipeline actual deriva GHCR del dueño en minúsculas; dev exige SHA8 en `IMAGE_TAG` y `APP_VERSION`, y los CD promocionan y despliegan por digest (`IMAGE_TAG=tag@digest`). El comando de la decisión recoge el diseño histórico; ver `docs/pipeline.md` y `docs/setup.md` para el flujo vigente y la seguridad del runner.
+
 ## Contexto
 
 El repo es material docente autoalojable: cada estudiante despliega
@@ -14,7 +16,7 @@ runners hospedados por GitHub (`ubuntu-latest`) no pueden alcanzar
 hacia `hiss-dev`/`hiss-staging`/`hiss-prod` fallaría desde la nube.
 
 Necesitábamos un mecanismo que permitiera construir la imagen en la nube
-(`_build-push.yml` empuja a `ghcr.io/vieitesss/hiss:<tag>` con
+(`_build-push.yml` empuja a `ghcr.io/mvieitesr/hiss:<tag>` con
 `GITHUB_TOKEN`) y desplegarla en el host del estudiante sin exponer su
 máquina a internet ni requerir infra cloud por alumno.
 
@@ -40,7 +42,7 @@ Environments** `dev`/`staging`/`prod` como mecanismo de CD:
 - `prod` declara `environment: prod` con `Required reviewers` (ver
   `docs/setup.md:GitHub Environments y secretos`), lo que pausa
   `cd-prod.yml` y `rollback.yml` hacia `prod` hasta aprobación.
-- El paquete `ghcr.io/vieitesss/hiss` se publica como **público** para que
+- El paquete `ghcr.io/mvieitesr/hiss` se publica como **público** para que
   el runner haga `pull` anónimo sin `docker login`; los `push` usan
   `permissions: packages: write` en `_build-push.yml`.
 

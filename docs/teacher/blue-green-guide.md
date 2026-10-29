@@ -23,8 +23,7 @@ que no falla durante el `nginx -s reload`.
 - `POSTGRES_PASSWORD` disponible (usa `changeme` para la demo; no es secreto
   docente).
 - Imágenes `0.1.0`, `0.1.1` y `0.1.0-snapshot` publicadas en el GHCR elegido.
-  Por defecto se usa `ghcr.io/vieitesss/hiss` público; cada fork puede usar
-  su propio repositorio exportando `IMAGE=ghcr.io/<usuario>/hiss`.
+  El responsable del repositorio publicará esos tags en `ghcr.io/mvieitesr/hiss` antes de la práctica; cada fork puede usar su propio repositorio exportando `IMAGE=ghcr.io/<usuario>/hiss`.
 - Puerto `9000` libre. Si está ocupado, exporta `BLUE_GREEN_PORT=9001`
   para toda la sesión y sustituye `9000` por `9001` en los comandos `curl`.
 - Repo en `main` limpio (`git status` sin cambios).
@@ -47,9 +46,9 @@ docker ps -a | grep hiss-blue-green || echo "limpio"
 Si quieres precalentar imágenes para no esperar pulls en clase:
 
 ```sh
-docker pull "${IMAGE:-ghcr.io/vieitesss/hiss}:0.1.0"
-docker pull "${IMAGE:-ghcr.io/vieitesss/hiss}:0.1.1"
-docker pull "${IMAGE:-ghcr.io/vieitesss/hiss}:0.1.0-snapshot"
+docker pull "${IMAGE:-ghcr.io/mvieitesr/hiss}:0.1.0"
+docker pull "${IMAGE:-ghcr.io/mvieitesr/hiss}:0.1.1"
+docker pull "${IMAGE:-ghcr.io/mvieitesr/hiss}:0.1.0-snapshot"
 ```
 
 ## Guion (20–30 min)
@@ -170,7 +169,7 @@ No dejes `hiss-blue-green` levantado junto a `hiss-dev`/`hiss-staging`/
 
 | Síntoma | Causa | Solución |
 | --- | --- | --- |
-| `pull access denied` | imagen no publicada o GHCR privado | `docker pull ghcr.io/vieitesss/hiss:0.1.0` debe funcionar sin `login`; haz el paquete público |
+| `pull access denied` | imagen no publicada o GHCR privado | comprueba que el responsable del repositorio ha publicado el tag y que el paquete permite pull; autentica el runner si es privado |
 | `healthy` nunca llega | `POSTGRES_PASSWORD` no inyectada | revisa `POSTGRES_PASSWORD=changeme` delante del `compose up` |
 | `curl: 502 Bad Gateway` tras `switch` | `ACTIVE_SLOT` renderizado con var vacía | verifica `deploy/blue-green/nginx.conf.template` usa `envsubst '${ACTIVE_SLOT}'` |
 | `switch green` idempotente sin cambio | el proxy ya apunta a `green` | `./deploy/blue-green/switch.sh status` |

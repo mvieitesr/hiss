@@ -13,11 +13,11 @@ discute por qué `workflow_call` es la abstracción correcta.
 ## Objetivo
 
 Que el alumno distinga duplicación accidental de abstracción útil y entienda
-`workflow_call` con `inputs`, `secrets: inherit` y `permissions`.
+`workflow_call` con `inputs`, `outputs` y `permissions`, distinguiendo el histórico del pipeline actual.
 
 ## Prerrequisitos
 
-- Repo clonado con acceso a `origin` y tags: `git fetch --tags`.
+- Repo clonado con acceso a `origin` y tag `workflows-duplicated`: `git fetch --tags`. El tag puede no estar en el fork del curso; el responsable debe prepararlo antes de clase o facilitar su procedencia.
 - Haber leído `docs/pipeline.md` § `_build-push.yml` y § `cd-dev.yml`.
 - Conocer `docker/build-push-action@v6` y `docker/login-action@v3` a nivel
   de lectura — no es necesario ejecutarlos en clase.
@@ -64,7 +64,7 @@ Ver un workflow duplicado:
 git show workflows-duplicated:.github/workflows/cd-dev.yml
 ```
 
-Snippet relevante (antes del refactor):
+Snippet relevante (antes del refactor), con la ruta histórica del registro anonimizada; consulta el tag para ver el literal:
 
 ```yaml
   build:
@@ -87,7 +87,7 @@ Snippet relevante (antes del refactor):
           context: ./app
           file: ./app/Dockerfile
           push: true
-          tags: ghcr.io/vieitesss/hiss:${{ needs.prepare.outputs.tag }}
+          tags: <registro-histórico>/hiss:${{ needs.prepare.outputs.tag }}
 ```
 
 Hacer lo mismo con `cd-staging.yml` y `cd-prod.yml` — son idénticos salvo
@@ -115,87 +115,26 @@ git diff workflows-duplicated..main -- .github/workflows/cd-staging.yml
 git diff workflows-duplicated..main -- .github/workflows/cd-prod.yml
 ```
 
-**`_build-push.yml` — fichero nuevo:**
+**Refactor histórico vs pipeline actual:**
 
-```yaml
-name: Reusable build and push
-on:
-  workflow_call:
-    inputs:
-      tag: { description: Image tag to publish, required: true, type: string }
-permissions:
-  contents: read
-  packages: write
-jobs:
-  build:
-    name: Build and push ${{ inputs.tag }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/login-action@v3
-        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
-      - uses: docker/build-push-action@v6
-        with: { context: ./app, file: ./app/Dockerfile, push: true, tags: ghcr.io/vieitesss/hiss:${{ inputs.tag }} }
+El commit `fdab845` extrajo el build duplicado y usaba `secrets: inherit`. Compáralo con `workflows-duplicated` si quieres aislar ese paso. En `main` el reusable ha evolucionado: recibe `tag`, `ref` y `source_tag`, expone `image` y `digest`, deriva GHCR del dueño en minúsculas y verifica la revisión OCI antes de promocionar el digest. `cd-dev` construye; staging y prod promocionan el SHA8 sin reconstruir. Los callers actuales no usan `secrets: inherit`.
+
+```sh
+git diff workflows-duplicated..fdab845 -- .github/workflows/_build-push.yml .github/workflows/cd-dev.yml
+git show main:.github/workflows/_build-push.yml
+git show main:.github/workflows/cd-staging.yml
 ```
 
-**`cd-dev.yml` — antes vs después (diff resumido):**
-
-```diff
-   build:
-     name: Build and push dev image
-     needs: prepare
--    runs-on: ubuntu-latest
--    timeout-minutes: 10
--    steps:
--      - name: Check out repository
--        uses: actions/checkout@v4
--      - name: Log in to GHCR
--        uses: docker/login-action@v3
--      - name: Build and push image
--        uses: docker/build-push-action@v6
-+    uses: ./.github/workflows/_build-push.yml
-+    with: { tag: ${{ needs.prepare.outputs.tag }} }
-+    secrets: inherit
-+    permissions: { contents: read, packages: write }
-```
-
-El diff también muestra `checkout@v4` → `checkout@v7` — cambio menor de
-mantenimiento, no parte del refactor conceptual. Señalarlo para que no
-distraiga.
-
-Hacer el mismo `git diff` para `cd-staging.yml` y `cd-prod.yml`; el patrón
-es idéntico.
+El diff a `main` también contiene cambios posteriores (CI gate, acciones actualizadas, seguridad y promoción); no todos son parte del refactor original.
 
 ### 3. Discusión guiada (15 min)
 
-1. **¿Por qué `workflow_call` y no una `action` compuesta?**
-   `workflow_call` reutiliza un workflow completo con `jobs`; una action
-   compuesta encapsula `steps`. Aquí necesitamos un job con `permissions` y
-   `runs-on` propios — `workflow_call` es la herramienta correcta.
-
-2. **¿Por qué `inputs.tag` y no `github.ref_name` directo?**
-   Porque `_build-push.yml` no sabe si viene de `SHA8`, `snapshot` o `X.Y.Z`
-   — el caller decide. Desacopla trigger de empaquetado.
-
-3. **¿Qué hace `secrets: inherit`?**
-   Propaga `GITHUB_TOKEN` con `packages: write` sin enumerar cada secreto.
-   Sin `inherit`, el `docker/login-action` fallaría con `unauthorized`.
-   Discutir alternativa `secrets: { GITHUB_TOKEN: ... }` y por qué `inherit`
-   es más simple aquí pero menos granular.
-
-4. **¿Por qué `permissions: contents: read, packages: write` dos veces?**
-   Una a nivel de workflow reutilizable, otra a nivel de caller que lo
-   invoca — GitHub exige declarar permisos en ambos.
-
-5. **¿Cuándo no abstraer?**
-   Si cada CD necesitase `build` distinto (por ejemplo `dev` con `--target
-   dev`), la abstracción prematura complicaría. Aquí los tres builds son
-   idénticos — abstraer reduce 60 líneas duplicadas y un punto de fallo.
-
-6. **¿Qué queda duplicado a propósito?**
-   `prepare` (cálculo de tag distinto: `SHA8` vs `ref_name`) y `deploy`/
-   `smoke-test` (Environment y puerto distintos). No todo debe generalizarse.
+1. **¿Por qué `workflow_call` y no una action compuesta?** El primero permite reutilizar un workflow completo con jobs; una action compuesta agrupa steps.
+2. **¿Qué deciden los callers?** El tag, el commit y si se construye o promociona. La revisión OCI y el digest protegen la identidad del artefacto durante la promoción.
+3. **¿Qué ocurrió con `secrets: inherit`?** Se usó en el refactor histórico, no en los callers actuales. `GITHUB_TOKEN` está disponible para el reusable con los permisos permitidos por el caller; heredar todos los secretos no es necesario para ese token.
+4. **¿Por qué `contents: read, packages: write`?** El reusable necesita esos permisos y el caller no puede concederle permisos superiores a los suyos.
+5. **¿Cuándo no abstraer?** Cuando los builds son sustancialmente distintos. Actualmente el reusable tiene dos caminos explícitos: construir o promocionar.
+6. **¿Qué queda duplicado a propósito?** Los triggers, preparación y despliegues/smoke tests por Environment.
 
 ### 4. Cierre y tarea (5 min)
 
@@ -222,8 +161,7 @@ git checkout main -- .github/workflows/
 - No ejecutar workflows en clase — la inspección es estática. Si quieres
   demo en vivo, empuja un commit vacío a `main` y observa primero `ci.yml`
   y, solo si termina en verde, `cd-dev.yml` en **Actions**.
-- El tag `workflows-duplicated` se creó adrede para esta lección; no lo
-  borres. Si se pierde, recrearlo desde `963d38e`.
+- El tag `workflows-duplicated` se creó adrede para esta lección; no lo borres. Si falta, consulta al responsable antes de recrearlo desde `963d38e`.
 - Tiempo: si la clase es de 90 min, añade ejercicio práctico: el alumno
   crea una rama, revierte el refactor (copia el `build` inline) y abre PR
   para ver `ci.yml` verde pero diff mayor.

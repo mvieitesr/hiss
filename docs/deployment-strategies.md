@@ -18,8 +18,7 @@ probarla en el repo.
 | **Blue-Green** | no — corte instantáneo vía proxy | 2 entornos + proxy | `deploy/blue-green/` en `:9000` |
 | **Canary** | no — porcentaje de tráfico | orquestador/mesh + métricas | teoría (pesos y análisis) |
 
-Todas despliegan la misma imagen `ghcr.io/vieitesss/hiss:<tag>`; cambia
-solo `IMAGE_TAG`/`APP_VERSION` y la forma de mover el tráfico.
+El ejemplo usa imágenes de `ghcr.io/mvieitesr/hiss` o de un `IMAGE` alternativo; según la estrategia cambian tags, configuración y forma de mover el tráfico. Los CD promocionan el mismo digest cuando los tags apuntan al mismo commit.
 
 ## Recreate — parar y arrancar
 
@@ -29,13 +28,15 @@ Environment reemplaza el contenedor `app` en el mismo host.
 
 ```sh
 export POSTGRES_PASSWORD='elige-un-secreto-local'
+unset IMAGE_TAG APP_VERSION  # usa los valores del env-file de prod
 docker compose --env-file deploy/prod.env -p hiss-prod up -d
 # o explícito:
 docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod pull
 docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
-# mismo patrón en dev:8001
-POSTGRES_PASSWORD='elige-un-secreto-local' docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull
-POSTGRES_PASSWORD='elige-un-secreto-local' docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+# mismo patrón en dev:8001 (SHA8 publicado)
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
+docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .
@@ -115,12 +116,13 @@ sin reiniciar contenedores de aplicación.
 | Servicio | Imagen | Puerto host | Notas |
 | --- | --- | --- | --- |
 | `db` | `postgres:16-alpine` | — | único Postgres compartido (simplificación) |
-| `blue` | `ghcr.io/vieitesss/hiss:${BLUE_TAG}` | — | `healthcheck` idéntico a `deploy/compose.yml` |
-| `green` | `ghcr.io/vieitesss/hiss:${GREEN_TAG}` | — | mismo código, distinto tag |
+| `migrate` | `${IMAGE}:${MIGRATE_TAG}` | — | ejecuta Alembic antes de arrancar los slots; por defecto usa `GREEN_TAG` |
+| `blue` | `ghcr.io/mvieitesr/hiss:${BLUE_TAG}` | — | `healthcheck` idéntico a `deploy/compose.yml` |
+| `green` | `ghcr.io/mvieitesr/hiss:${GREEN_TAG}` | — | imagen correspondiente a su tag |
 | `proxy` | `nginx:1.27-alpine` | `${BLUE_GREEN_PORT:-9000}:80` | único puerto publicado |
 
 Ficheros: `deploy/blue-green/compose.yml`, `nginx.conf.template`,
-`switch.sh`, `.env.example`, `.active-slot` (gitignored).
+`switch.sh`, `.env.example`. El volumen `proxy-state` conserva el color por proyecto; `status` lee el `proxy_pass` real.
 
 La demo usa `9000` para no colisionar con `8001`/`8002`/`8003` y
 `postgres:16-alpine` frente a `17-alpine` del compose principal — ambas
@@ -128,9 +130,12 @@ diferencias se documentan para evitar confusión.
 
 ### Hands-on — 3 comandos
 
+El responsable del repositorio publicará las imágenes `0.1.0`, `0.1.1` y `0.1.0-snapshot` de `mvieitesr/hiss` antes de la práctica. Exporta la contraseña en cada terminal que use Compose o los scripts.
+
 ```sh
 # 1. Levantar (desde la raíz del repo)
-POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env.example up -d
+export POSTGRES_PASSWORD=changeme
+docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env.example up -d --wait --wait-timeout 60
 
 # 2. Ver estado y versión a través del proxy (único puerto publicado)
 ./deploy/blue-green/switch.sh status
@@ -148,30 +153,34 @@ curl -s http://localhost:9000/version | jq .
 Personalización sin editar `compose.yml`:
 
 ```sh
-BLUE_GREEN_PORT=9001 POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml up -d
-BLUE_TAG=0.1.0 GREEN_TAG=0.1.1 POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml up -d
+export BLUE_GREEN_PORT=9001 BLUE_TAG=0.1.0 GREEN_TAG=0.1.1
+docker compose -f deploy/blue-green/compose.yml up -d --wait --wait-timeout 60
+# Mantén estos valores exportados para switch.sh y adapta los curl al puerto 9001.
 ```
 
 `switch.sh` es `bash` `set -euo pipefail` compatible con macOS 3.2 y Linux.
 Comandos:
 
 ```sh
-./deploy/blue-green/switch.sh status              # lee .active-slot, por defecto blue
+./deploy/blue-green/switch.sh status              # lee el proxy real
 ./deploy/blue-green/switch.sh switch blue|green   # idempotente
 ./deploy/blue-green/switch.sh deploy <tag>        # despliega en inactivo, espera healthy ≤60s, hace switch y verifica /version
 ./deploy/blue-green/switch.sh rollback            # vuelve al color opuesto
 ```
 
-La verificación es `curl --fail http://localhost:9000/version | jq -e '.version == \"<tag>\"'`.
+`switch`, `deploy` y `rollback` comparan `/version` con la versión esperada. Si falla la comprobación tras el reload, el corte no se revierte automáticamente; la versión declarada tampoco certifica el digest.
 
 ### Mermaid — tráfico blue-green
 
 ```mermaid
 flowchart TD
     C["Cliente<br/>curl :9000"] --> P["proxy nginx:80<br/>${ACTIVE_SLOT}"]
-    P -->|ACTIVE_SLOT=blue| B["blue:8000<br/>ghcr.io/vieitesss/hiss:BLUE_TAG"]
-    P -->|ACTIVE_SLOT=green| G["green:8000<br/>ghcr.io/vieitesss/hiss:GREEN_TAG"]
-    B --> DB[("db postgres:16-alpine<br/>compartida")]
+    P -->|ACTIVE_SLOT=blue| B["blue:8000<br/>ghcr.io/mvieitesr/hiss:BLUE_TAG"]
+    P -->|ACTIVE_SLOT=green| G["green:8000<br/>ghcr.io/mvieitesr/hiss:GREEN_TAG"]
+    M["migrate: Alembic"] --> DB[("db postgres:16-alpine<br/>compartida")]
+    M -.-> B
+    M -.-> G
+    B --> DB
     G --> DB
 
     classDef active fill:#c8e6c9,stroke:#1b5e20
@@ -201,7 +210,7 @@ while true; do curl -fs http://localhost:9000/version >/dev/null || echo "fail $
 docker compose -f deploy/blue-green/compose.yml down -v
 docker ps -a | grep hiss-blue-green || echo "limpio"
 docker volume ls | grep hiss-blue-green || echo "volumen limpio"
-rm -f deploy/blue-green/.active-slot
+# down -v también elimina el volumen proxy-state
 ```
 
 ## Canary — porcentaje de tráfico y análisis
@@ -268,6 +277,8 @@ El curso no despliega Prometheus/Grafana/Loki ni ArgoCD — son teoría. La
 supervisión honesta del repo es:
 
 ```sh
+export POSTGRES_PASSWORD='elige-un-secreto-local'
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
 docker compose --env-file deploy/dev.env -p hiss-dev ps
 #   NAME                STATUS              PORTS
 #   hiss-dev-app-1      Up (healthy)        0.0.0.0:8001->8000/tcp

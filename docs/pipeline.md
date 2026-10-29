@@ -1,8 +1,7 @@
 # Pipeline
 
 Este documento describe el pipeline completo del repositorio: cómo
-se verifica cada cambio, cómo se construye y publica la imagen y cómo
-esa misma imagen se despliega en `dev`, `staging` y `prod`. Es la
+se verifica cada cambio, cómo se construye y publica la imagen SHA8 y cómo se promociona por digest cuando staging y prod apuntan al mismo commit. Es la
 referencia canónica para RA1 y RA2 — si entiendes este fichero,
 entiendes el sistema de entrega.
 
@@ -15,17 +14,9 @@ El repo separa claramente verificación y entrega:
 
 - **CI** (`ci.yml`) corre en `ubuntu-latest` hospedado por GitHub y nunca
   despliega. Se ejecuta en `pull_request` y en `push` a `main`.
-- **CD** (`cd-dev.yml`, `cd-staging.yml`, `cd-prod.yml`, `rollback.yml`)
-  construye la imagen una vez y la despliega en tu máquina vía runner
-  `self-hosted`. El workflow reutilizable `_build-push.yml` centraliza el
-  `build` y `push`. Ningún `cd-*.yml` despliega si CI no está en verde
-  para ese commit: `cd-dev.yml` se dispara con `workflow_run` cuando CI
-  termina con éxito en `main`; `cd-staging.yml` y `cd-prod.yml` empiezan
-  por un job `ci-gate`.
+- **CD** construye y publica la imagen SHA8 en `cd-dev.yml` tras un CI exitoso de `push` a `main`. `cd-staging.yml` y `cd-prod.yml` promocionan el digest existente sin reconstruir; sus `ci-gate` exigen que el commit sea ancestro de `origin/main` y tenga CI exitoso de `push` a `main`. `rollback.yml` redespliega un tag existente.
 
-Toda imagen se publica en `ghcr.io/vieitesss/hiss:<tag>` y se despliega con
-el mismo `deploy/compose.yml` cambiando solo `--env-file`. El tag de imagen
-y `APP_VERSION` siempre coinciden — el artefacto es inmutable.
+El reusable publica en `ghcr.io/<dueño-del-repo-en-minúsculas>/hiss`, también en forks. Los CD despliegan con `IMAGE_TAG=<tag>@<digest>` y `APP_VERSION=<tag>` mediante el mismo Compose; el digest identifica el artefacto. El build de CI solo valida la construcción y no es la imagen publicada.
 
 ## CI — `.github/workflows/ci.yml`
 
@@ -41,7 +32,7 @@ on:
 
 Propiedades clave:
 
-- `permissions: contents: read, pull-requests: read` — permisos mínimos.
+- `permissions: contents: read` por defecto; `changes` añade `pull-requests: read`.
 - `concurrency: group: ci-... / cancel-in-progress: para PR` — cancela
   ejecuciones obsoletas de la misma rama.
 - Todos los jobs en `ubuntu-latest` con `timeout-minutes` acotado. Una
@@ -51,19 +42,20 @@ Propiedades clave:
 
 | Job | Cuándo corre | Qué hace |
 | --- | --- | --- |
-| `changes` | siempre | `dorny/paths-filter@v3` clasifica el diff en `app`, `cli` y `shared` (`pytest.ini`, `ruff.toml`, `.github/workflows/ci.yml`). Exporta `outputs.app/cli/shared`. |
+| `changes` | siempre | `dorny/paths-filter@v3` clasifica el diff en `app`, `cli` y `shared` (`pytest.ini`, `ruff.toml`, `.github/workflows/**`, `deploy/**`, `compose.yml`). Exporta `outputs.app/cli/shared`. |
+| `lint-pipeline` | siempre | actionlint 1.7.12 y `docker compose config -q` para ambos Compose y los tres env-files con valores ficticios. |
 | `lint` | `app`/`cli`/`shared` | `setup-python@v5` con Python 3.13 y caché de `app/requirements.txt` + `cli/requirements.txt`; `pip install ruff==0.9.10`; `ruff check app cli` y `ruff format --check app cli`. |
 | `lint-docker` | `app` | `docker run --rm -i hadolint/hadolint:v2.12.0-alpine < app/Dockerfile`. |
-| `test-app` | `app`/`shared` | Servicio efímero `postgres:17-alpine` (`POSTGRES_DB=hiss_test`, `healthcheck pg_isready`), `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hiss_test`, `alembic -c app/alembic.ini upgrade head`, `pytest app/tests`. |
+| `test-app` | `app`/`shared` | Servicio efímero `postgres:17-alpine` (`POSTGRES_DB=hiss_test`, `healthcheck pg_isready`), `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hiss_test`, instala `app/requirements-dev.txt`, ejecuta `alembic -c app/alembic.ini upgrade head` y `pytest app/tests`. |
 | `test-cli` | `cli`/`shared` | Sin servicio; `pip install -r cli/requirements.txt` + `pip install -e cli`; `pytest cli/tests`. |
 | `build` | `app` y `test-app` ok | `docker build -f app/Dockerfile app/` — solo valida que la imagen construye, sin `login` ni `push`. |
 
 El filtro de rutas evita trabajo inútil: un cambio solo en `cli/` no
 dispara `test-app` ni `lint-docker`; un cambio solo en documentación deja
 jobs saltados que GitHub reporta como éxitos para no bloquear el merge. Los
-checks requeridos de `main` incluyen los seis nombres `CI / Detect changes`,
-`CI / Lint Python`, `CI / Lint Dockerfile`, `CI / Test app`, `CI / Test CLI`
-y `CI / Build app image` (ver `docs/setup.md`).
+checks requeridos de `main` incluyen `CI / Detect changes`,
+`CI / Validate workflows and Compose`, `CI / Lint Python`, `CI / Lint Dockerfile`, `CI / Test app`, `CI / Test CLI`
+y `CI / Build app image`, si se configuran como requeridos (ver `docs/setup.md`).
 
 ### Revisar una ejecución de CI
 
@@ -75,12 +67,15 @@ gh run view <run-id> --log-failed
 
 ## CD — construcción, publicación y despliegue
 
-Tres workflows despliegan automáticamente según el trigger y uno permite
-volver atrás manualmente. Todos comparten el mismo patrón:
+Tres workflows despliegan automáticamente según el trigger y uno permite volver atrás manualmente:
 
 ```
-prepare (calcula tag) → build (reutilizable) → deploy (self-hosted) → smoke-test (self-hosted)
+dev:          prepare → build SHA8 (reutilizable) → deploy → smoke-test
+staging/prod: ci-gate → prepare → promote (job build reutilizable) → deploy → smoke-test
+rollback:     deploy → smoke-test
 ```
+
+Deploy y smoke usan `self-hosted`; con varios runners hay que asegurar que ambos jobs lleguen al mismo host. CD y rollback comparten `cd-<environment>` con `cancel-in-progress: false`; la concurrencia no garantiza una cola FIFO.
 
 ### Tabla de triggers
 
@@ -101,8 +96,7 @@ Los tags no llevan `v` inicial. `pull_request` nunca despliega — cada
 
 ### `_build-push.yml` — workflow reutilizable
 
-`.github/workflows/_build-push.yml` es `workflow_call` con input `tag` y
-`ref` opcional (SHA a construir; por defecto `github.sha`):
+`.github/workflows/_build-push.yml` es `workflow_call` con `tag` obligatorio y `ref` y `source_tag` opcionales; expone `image` y `digest`:
 
 ```yaml
 on:
@@ -110,28 +104,16 @@ on:
     inputs:
       tag: { description: Image tag to publish, required: true, type: string }
       ref: { description: Git ref or SHA to check out, required: false, type: string, default: "" }
+      source_tag: { description: Existing commit image tag to promote, required: false, type: string, default: "" }
+    outputs:
+      digest: { value: '${{ jobs.build.outputs.digest }}' }
+      image: { value: '${{ jobs.build.outputs.image }}' }
 permissions:
   contents: read
   packages: write
 ```
 
-Un solo job `build` hace `checkout@v7`, `docker/login-action@v3` con
-`registry: ghcr.io` y `GITHUB_TOKEN`, y `docker/build-push-action@v6` con
-`context: ./app`, `file: ./app/Dockerfile`, `push: true`,
-`tags: ghcr.io/vieitesss/hiss:${{ inputs.tag }}`.
-
-Cada `cd-*.yml` lo invoca así:
-
-```yaml
-build:
-  needs: prepare
-  uses: ./.github/workflows/_build-push.yml
-  with: { tag: ${{ needs.prepare.outputs.tag }} }
-  secrets: inherit
-```
-
-Así se eliminó la duplicación que existía en el tag `workflows-duplicated`
-(ver `docs/teacher/workflow-refactor-lesson.md`).
+Con `source_tag` vacío, el job construye el `ref` y publica el tag mediante `docker/build-push-action@v6`. Si se pasa `source_tag`, consulta su digest, comprueba que la etiqueta OCI `org.opencontainers.image.revision` corresponda al SHA completo de `ref` y crea el Release Tag con `imagetools create`; después comprueba que el digest no haya cambiado. Si no existe la imagen SHA8 o falta/no coincide la revisión, falla. Los callers pasan `contents: read` y `packages: write` al job reutilizable; no usan `secrets: inherit`. El `GITHUB_TOKEN` está disponible automáticamente. Ver `docs/teacher/workflow-refactor-lesson.md` para el refactor histórico.
 
 ### `cd-dev.yml`, `cd-staging.yml`, `cd-prod.yml`
 
@@ -141,8 +123,7 @@ Los tres comparten estructura. Ejemplo `cd-dev.yml`:
 - `build`: reutilizable `_build-push.yml` con `ref` al mismo SHA.
 - `deploy`: `runs-on: [self-hosted]`, `environment: dev`, `env: DEPLOY_TAG` y
   `POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}`, pasos `checkout@v7`,
-  `docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull` y `up -d` con
-  `IMAGE_TAG`/`APP_VERSION` inyectados.
+  `docker compose ... pull` con `IMAGE_TAG="$DEPLOY_TAG@$DIGEST"` y `APP_VERSION="$DEPLOY_TAG"`, seguido de `up -d --no-build --pull never`.
 - `smoke-test`: `runs-on: [self-hosted]`, `BASE_URL=http://localhost:8001`,
   tres `curl --fail --silent --show-error --max-time 10 --retry 10 --retry-delay 2 --retry-connrefused`
   a `/healthz`, `/readyz` y `/version | jq --exit-status --arg expected \"$DEPLOY_TAG\" '.version == $expected'`.
@@ -155,15 +136,14 @@ request no despliegue. `cd-staging.yml` usa `on: push: tags:
 `BASE_URL=http://localhost:8002`. `cd-prod.yml` usa `'[0-9]+.[0-9]+.[0-9]+'`
 y `BASE_URL=http://localhost:8003` con `environment: prod` protegido por
 revisor. Staging y prod empiezan por `ci-gate`, que consulta el CI de ese
-commit y no deja pasar `prepare` hasta `completed:success` (o falla si CI
-falló).
+commit: exige ascendencia de `origin/main` y consulta CI de `push` a `main`; no deja pasar `prepare` hasta `completed:success` (o falla si CI falló o agotó la espera). Es necesario que `cd-dev` ya haya publicado el SHA8 correspondiente.
 
 ### `rollback.yml`
 
 Solo `workflow_dispatch` con inputs `environment` (`dev`/`staging`/`prod`,
 `type: choice`) y `tag` (`type: string`). No construye: redespliega un tag
-existente. `deploy` elige `env_file`/`project`/`port` con `case`, hace
-`pull` y `up -d`; `smoke-test` resuelve `BASE_URL` según el Environment y
+existente por su tag (sin fijar digest). `deploy` elige `env_file`/`project` con `case`, hace
+`pull` y `up -d --no-build --pull never`; `smoke-test` resuelve `BASE_URL` según el Environment y
 repite los tres `curl` + `jq`. Los rollbacks a `prod` también pausan por
 aprobación de Environment.
 
@@ -179,6 +159,7 @@ gh workflow run rollback.yml -f environment=staging -f tag=0.1.0-snapshot
 ```mermaid
 flowchart TD
     PR["pull_request / push a main<br/>ci.yml en ubuntu-latest"] --> CHANGES["changes<br/>dorny/paths-filter"]
+    PR --> LP["lint-pipeline<br/>actionlint + Compose config"]
     CHANGES --> LINT["lint<br/>ruff 0.9.10"]
     CHANGES --> LINTD["lint-docker<br/>hadolint"]
     CHANGES --> TAPP["test-app<br/>postgres:17-alpine efímero"]
@@ -187,8 +168,8 @@ flowchart TD
 
     PUSHMAIN["push a main"] --> CIWAIT["ci.yml debe terminar en success"]
     CIWAIT --> CDDEV["cd-dev.yml via workflow_run<br/>prepare SHA8 → _build-push.yml<br/>→ deploy dev:8001 → smoke-test"]
-    TAGSNAP["push tag X.Y.Z-snapshot"] --> CDSTAG["cd-staging.yml<br/>prepare tag → _build-push.yml<br/>→ deploy staging:8002 → smoke-test"]
-    TAGREL["push tag X.Y.Z"] --> CDPROD["cd-prod.yml<br/>prepare tag → _build-push.yml<br/>→ deploy prod:8003<br/>gate de aprobación → smoke-test"]
+    TAGSNAP["push tag X.Y.Z-snapshot"] --> CDSTAG["cd-staging.yml<br/>ci-gate → prepare → promoción SHA8/digest<br/>→ deploy staging:8002 → smoke-test"]
+    TAGREL["push tag X.Y.Z"] --> CDPROD["cd-prod.yml<br/>ci-gate → prepare → promoción SHA8/digest<br/>→ deploy prod:8003<br/>gate de aprobación → smoke-test"]
     WD["workflow_dispatch"] --> ROLLBACK["rollback.yml<br/>deploy Environment/tag elegido<br/>→ smoke-test"]
 
     classDef cd fill:#e1f5fe,stroke:#01579b
@@ -208,12 +189,12 @@ sequenceDiagram
     D->>D: _build-push SHA8 + pull/up + smoke-test
 
     Note over D,P: push X.Y.Z-snapshot → staging automático — Deployment
-    S->>S: _build-push X.Y.Z-snapshot + pull/up + smoke-test
+    S->>S: promover SHA8 por digest + pull/up + smoke-test
 
     Note over D,P: push X.Y.Z → prod queda en espera — Delivery
     P->>R: Environment prod requiere aprobación
     R-->>P: Approve
-    P->>P: pull/up X.Y.Z + smoke-test
+    P->>P: pull/up X.Y.Z@digest + smoke-test
     Note over D,P: Sin aprobación no hay despliegue — Delivery != Deployment
 ```
 
@@ -232,7 +213,7 @@ por `app/app/api/probes.py`:
   base de datos no es alcanzable.
 - `GET /version` — devuelve `{"version": "<APP_VERSION>"}`; el smoke test
   comprueba `jq --exit-status --arg expected \"$DEPLOY_TAG\" '.version == $expected'`
-  (forma corta: `jq --arg expected`).
+  (forma corta: `jq --arg expected`). Es una comprobación de la configuración de runtime, no prueba independiente del SHA ni del digest; estos se verifican en la promoción.
 
 La healthcheck de Compose en `deploy/compose.yml` usa
 `python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/healthz\")'`
@@ -257,12 +238,10 @@ curl --fail --silent --show-error --max-time 10 --retry 10 --retry-delay 2 --ret
 
 ## Invariantes y convenciones
 
-- `IMAGE=ghcr.io/vieitesss/hiss`, `IMAGE_TAG` y `APP_VERSION` coinciden
-  siempre; el despliegue inyecta `POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}` sin
-  versionarla.
+- El workflow deriva `IMAGE` del dueño y usa `IMAGE_TAG=tag@digest` y `APP_VERSION=tag`; el despliegue inyecta `POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}` sin versionarla.
 - `COMPOSE_PROJECT_NAME` (`hiss-dev`/`hiss-staging`/`hiss-prod`) aísla redes,
   volúmenes `pgdata` y contenedores en el mismo host.
-- `X.Y.Z-snapshot` es móvil y reescribible; `X.Y.Z` es inmutable.
+- Por convención `X.Y.Z-snapshot` puede moverse y `X.Y.Z` no; GitHub no impone esa inmutabilidad sin reglas externas.
 - `rollback.yml` nunca construye — solo mueve el tag desplegado.
 
 Ver también [`docs/environments.md`](environments.md) para el mapeo de

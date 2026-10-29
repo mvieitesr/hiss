@@ -66,7 +66,7 @@ printf "=== Blue-green demo check ===\n"
 printf "Compose: %s\n" "$COMPOSE_FILE"
 printf "Proxy port: %s (override with BLUE_GREEN_PORT)\n" "$PORT"
 printf "Project: %s (isolated from hiss-dev/staging/prod on 8001-8003)\n" "${COMPOSE_PROJECT_NAME:-hiss-blue-green}"
-printf "Images: %s\n\n" "${IMAGE:-ghcr.io/vieitesss/hiss}"
+printf "Images: %s\n\n" "${IMAGE:-ghcr.io/mvieitesr/hiss}"
 
 # 1. Verify the existing deployment without recreating either slot.
 printf "1) Checking the running demo...\n"
