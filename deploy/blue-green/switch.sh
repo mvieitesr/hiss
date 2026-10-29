@@ -155,9 +155,9 @@ do_switch() {
 
   # Confirmation with color
   if [ "$target" = "blue" ]; then
-    printf "Switched to ${BLUE}blue${RESET}\n"
+    printf 'Switched to %sblue%s\n' "$BLUE" "$RESET"
   else
-    printf "Switched to ${GREEN}green${RESET}\n"
+    printf 'Switched to %sgreen%s\n' "$GREEN" "$RESET"
   fi
 
   # Brief pause then smoke-test the proxy (best effort, don't fail switch if curl fails)
