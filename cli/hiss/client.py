@@ -66,13 +66,13 @@ def handle_response(resp: httpx.Response) -> any:
     On error print the API message verbatim to stderr.
     """
     if resp.is_success:
-        # 204 etc. has no body
-        if resp.status_code == 204:
+        if resp.status_code == 204 or not resp.content:
             return None
         try:
             return resp.json()
-        except Exception:
-            return None
+        except ValueError:
+            typer.echo("Error: non-JSON response from API; check the base URL.", err=True)
+            raise typer.Exit(code=1)
 
     # Error path — try to extract message verbatim
     msg: str
