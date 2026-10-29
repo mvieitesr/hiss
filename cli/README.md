@@ -1,15 +1,15 @@
 # hiss CLI
 
-Typer + httpx + rich client for the hiss API.
+Cliente con Typer + httpx + rich para la API de hiss.
 
-## Install
+## Instalación
 
 ```
 pip install -e cli/
 hiss --help
 ```
 
-## Usage
+## Uso
 
 ```
 hiss --url http://localhost:8000 projects list
@@ -19,10 +19,10 @@ hiss comments add 42 "reproduced on staging"
 hiss labels create bug
 ```
 
-Base URL from `--url` flag or `HISS_URL` env (default `http://localhost:8000`).
+La URL base se establece con la opción `--url` o la variable de entorno `HISS_URL` (por defecto `http://localhost:8000`).
 
-Table output by default; supported commands accept `--json`. Text is rendered literally, without interpreting Rich markup. Dynamic URL path segments are encoded by the client; the API rejects `/`, `.` and `..` as Project keys or Label names and enforces the length limits described in the root README.
+La salida se muestra como tabla por defecto; los comandos compatibles aceptan `--json`. El texto se muestra literalmente, sin interpretar el marcado de Rich. El cliente codifica los segmentos dinámicos de la ruta URL; la API rechaza `/`, `.` y `..` como claves de Project o nombres de Label y aplica los límites de longitud descritos en el README de la raíz.
 
-A successful non-empty 2xx response must be JSON (204 or an empty body is accepted). Otherwise the CLI exits with status 1 and prints `Error: non-JSON response from API; check the base URL.` to stderr.
+Una respuesta 2xx exitosa y no vacía debe ser JSON (se acepta 204 o un cuerpo vacío). De lo contrario, la CLI termina con el estado 1 y escribe `Error: non-JSON response from API; check the base URL.` en stderr.
 
-Runtime dependencies are pinned in `pyproject.toml`: `typer==0.27.3`, `httpx==0.28.1` and `rich==15.0.0`; `requirements.txt` also pins pytest for tests.
+Las dependencias de ejecución están fijadas en `pyproject.toml`: `typer==0.27.3`, `httpx==0.28.1` y `rich==15.0.0`; `requirements.txt` también fija pytest para los tests.
