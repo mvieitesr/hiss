@@ -14,6 +14,28 @@ def run(*args, check=True):
     return subprocess.run(args, check=check, capture_output=True, text=True, env=os.environ)
 
 
+def curl_fault_env(tmp_path, fail_at):
+    shim = tmp_path / "curl"
+    shim.write_text(
+        "#!/bin/sh\n"
+        'for arg do case "$arg" in */version)\n'
+        '  count=0; [ ! -f "$CURL_COUNT" ] || count=$(cat "$CURL_COUNT")\n'
+        '  count=$((count + 1)); echo "$count" > "$CURL_COUNT"\n'
+        '  if [ "$count" -eq "$CURL_FAIL_AT" ]; then\n'
+        "    printf '%s\\n' '{\"version\":\"audit-injected-mismatch\"}'; exit 0\n"
+        "  fi;; esac; done\n"
+        'exec /usr/bin/curl "$@"\n'
+    )
+    shim.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        PATH=f"{tmp_path}:{env['PATH']}",
+        CURL_COUNT=str(tmp_path / "curl.count"),
+        CURL_FAIL_AT=str(fail_at),
+    )
+    return env
+
+
 def health(service):
     container = run(*COMPOSE, "ps", "-q", service).stdout.strip()
     return run("docker", "inspect", "--format", "{{.State.Health.Status}}", container).stdout.strip()
@@ -68,6 +90,28 @@ def test_demo_requires_password_for_compose():
     )
     assert result.returncode != 0
     assert "Error: POSTGRES_PASSWORD must be set" in result.stderr
+
+
+def test_deploy_rejects_wrong_version(tmp_path):
+    result = subprocess.run(
+        [str(DEMO / "switch.sh"), "deploy", "0.1.0-snapshot"],
+        capture_output=True,
+        text=True,
+        env=curl_fault_env(tmp_path, 2),
+    )
+    assert "audit-injected-mismatch" in result.stdout
+    assert result.returncode != 0
+
+
+def test_demo_rejects_wrong_rollback_version(tmp_path):
+    result = subprocess.run(
+        [str(DEMO / "demo-check.sh")],
+        capture_output=True,
+        text=True,
+        env=curl_fault_env(tmp_path, 6),
+    )
+    assert "audit-injected-mismatch" in result.stdout
+    assert result.returncode != 0
 
 
 def test_active_slot_survives_proxy_recreation():

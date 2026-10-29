@@ -176,6 +176,10 @@ do_deploy() {
     usage
     exit 1
   fi
+  if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf "Error: deploy requires curl and jq to verify the version\n" >&2
+    return 1
+  fi
 
   local current inactive
   current="$(get_active)"
@@ -208,21 +212,19 @@ do_deploy() {
   # Switch traffic to the newly deployed slot
   do_switch "$inactive"
 
-  # Final smoke-test: version should match deployed tag
-  if command -v curl >/dev/null 2>&1; then
-    printf "Verifying version via proxy...\n"
-    local ver
-    ver="$(curl --fail --silent --show-error --max-time 5 "http://localhost:${PORT}/version" 2>/dev/null || echo "")"
-    printf "Proxy /version: %s\n" "$ver"
-    if command -v jq >/dev/null 2>&1 && [ -n "$ver" ]; then
-      # Check .version == tag (jq returns 0 if true)
-      if echo "$ver" | jq --exit-status --arg expected "$tag" '.version == $expected' >/dev/null 2>&1; then
-        printf "Version check passed: %s\n" "$tag"
-      else
-        printf "Warning: version mismatch (expected %s)\n" "$tag" >&2
-      fi
-    fi
+  # Final smoke-test: version must match the deployed tag.
+  printf "Verifying version via proxy...\n"
+  local ver
+  if ! ver="$(curl --fail --silent --show-error --max-time 5 "http://localhost:${PORT}/version")"; then
+    printf "Error: cannot read proxy version\n" >&2
+    return 1
   fi
+  printf "Proxy /version: %s\n" "$ver"
+  if ! printf '%s\n' "$ver" | jq --exit-status --arg expected "$tag" '.version == $expected and (.version | type == "string" and length > 0)' >/dev/null 2>&1; then
+    printf "Error: version mismatch or empty (expected %s)\n" "$tag" >&2
+    return 1
+  fi
+  printf "Version check passed: %s\n" "$tag"
 }
 
 # Rollback is switching to the opposite slot (the one not currently active)
