@@ -53,7 +53,7 @@ def test_create_forms_limit_input_length(client, input_id, limit):
 
 def test_project_delete_does_not_embed_key_in_javascript(client):
     script = client.get("/static/app.js").text
-    assert 'onclick="app.handleDeleteProject(\'' not in script
+    assert "onclick=\"app.handleDeleteProject('" not in script
 
 
 def test_unknown_api_returns_404_json(client):

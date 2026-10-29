@@ -119,7 +119,9 @@ def h06(api, page, suffix):
     assert comments, "Issue A comments request was not intercepted"
     page.evaluate(f"location.hash = '#/issues/{issue_b['id']}'")
     page.get_by_role("heading", name="Race issue B").wait_for()
-    comments[0].fulfill(status=503, content_type="application/json", body='{"message":"old failure"}')
+    comments[0].fulfill(
+        status=503, content_type="application/json", body='{"message":"old failure"}'
+    )
     page.wait_for_load_state("networkidle")
     assert page.get_by_role("heading", name="Race issue B").count() == 1
     assert page.get_by_text("old failure").count() == 0
@@ -200,7 +202,9 @@ def h07_error(api, page, suffix):
     )
     page.evaluate(f"location.hash = '#/projects/{key_b}'")
     page.get_by_text("Issue list unavailable", exact=True).wait_for()
-    assert page.get_by_text("Only in A", exact=True).count() == 0, "Issue from Project A shown under B"
+    assert page.get_by_text("Only in A", exact=True).count() == 0, (
+        "Issue from Project A shown under B"
+    )
     assert page.get_by_role("heading", name="Could not load issues").count() == 1, (
         "failure was rendered as an empty or stale issue list"
     )
@@ -306,7 +310,9 @@ def happy(api, page, suffix):
     page.locator("#editTitleInput").fill("Edited browser issue")
     page.locator(".detail-title-edit-form button[type=submit]").click()
     page.get_by_role("heading", name="Edited browser issue").wait_for()
-    page.locator(".timeline-box").filter(has_text="Description").get_by_role("button", name="Edit").click()
+    page.locator(".timeline-box").filter(has_text="Description").get_by_role(
+        "button", name="Edit"
+    ).click()
     page.locator("#editDescriptionInput").fill("Edited description")
     page.locator(".timeline-edit-form button[type=submit]").click()
     page.get_by_text("Edited description", exact=True).wait_for()
@@ -316,19 +322,26 @@ def happy(api, page, suffix):
     page.locator(".detail-title-meta .priority-badge").get_by_text("Low", exact=True).wait_for()
     issue = api.get(f"issues/{issue_id}").json()
     assert (issue["title"], issue["description"], issue["status"], issue["priority"]) == (
-        "Edited browser issue", "Edited description", "done", "low"
+        "Edited browser issue",
+        "Edited description",
+        "done",
+        "low",
     )
 
     page.locator("#commentBodyInput").fill("Browser comment")
     page.get_by_role("button", name="Comment", exact=True).click()
     page.get_by_text("Browser comment", exact=True).wait_for()
     comment = api.get(f"issues/{issue_id}/comments").json()[0]
-    page.locator(".timeline-box").filter(has_text="Browser comment").get_by_role("button", name="Edit").click()
+    page.locator(".timeline-box").filter(has_text="Browser comment").get_by_role(
+        "button", name="Edit"
+    ).click()
     page.locator(f"#editCommentInput_{comment['id']}").fill("Edited browser comment")
     page.locator(".timeline-edit-form button[type=submit]").click()
     page.get_by_text("Edited browser comment", exact=True).wait_for()
     assert api.get(f"issues/{issue_id}/comments").json()[0]["body"] == "Edited browser comment"
-    page.locator(".timeline-box").filter(has_text="Edited browser comment").get_by_role("button", name="Delete").click()
+    page.locator(".timeline-box").filter(has_text="Edited browser comment").get_by_role(
+        "button", name="Delete"
+    ).click()
     page.get_by_text("Edited browser comment", exact=True).wait_for(state="detached")
     assert api.get(f"issues/{issue_id}/comments").json() == []
 
@@ -352,7 +365,9 @@ def happy(api, page, suffix):
     page.locator(".sidebar-labels").get_by_text(label, exact=True).wait_for()
     page.get_by_role("button", name="Manage", exact=True).click()
     page.locator("#manageLabelsModal").wait_for(state="visible")
-    page.locator("#labelsListContainer .label-pill").filter(has_text=label).locator("button").click()
+    page.locator("#labelsListContainer .label-pill").filter(has_text=label).locator(
+        "button"
+    ).click()
     page.locator("#labelsListContainer").get_by_text(label, exact=True).wait_for(state="detached")
     assert api.get(f"issues/{issue_id}").json()["labels"] == []
     page.locator("#manageLabelsModal").get_by_role("button", name="Done").click()
@@ -369,8 +384,14 @@ def happy(api, page, suffix):
 
 def main():
     checks = {
-        "H02": h02, "H06": h06, "H06-aba": h06_aba, "H06-project": h06_project,
-        "H07-error": h07_error, "H07-flag": h07_flag, "H10": h10, "H04": h04,
+        "H02": h02,
+        "H06": h06,
+        "H06-aba": h06_aba,
+        "H06-project": h06_project,
+        "H07-error": h07_error,
+        "H07-flag": h07_flag,
+        "H10": h10,
+        "H04": h04,
         "happy": happy,
     }
     requested = sys.argv[1:] or list(checks)
