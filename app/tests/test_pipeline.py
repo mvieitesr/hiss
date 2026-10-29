@@ -159,6 +159,13 @@ def test_fork_publishes_to_lowercase_owner(tmp_path):
     assert "steps.image.outputs.image" in build["tags"]
 
 
+def test_image_is_published_for_amd64_and_arm64_runners():
+    build = step("_build-push.yml", "build", "Build and push image")
+    assert set(build["with"]["platforms"].split(",")) == {"linux/amd64", "linux/arm64"}
+    for name in ("Set up QEMU", "Set up Buildx"):
+        assert step("_build-push.yml", "build", name)["if"] == build["if"]
+
+
 def test_dev_reuses_existing_commit_image_without_building(tmp_path):
     script = step("_build-push.yml", "build", "Find existing commit image")["run"]
     output = tmp_path / "output"
