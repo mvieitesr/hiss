@@ -13,9 +13,7 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
-  packages: write
+permissions: {}
 
 concurrency:
   group: cd-dev
@@ -50,13 +48,14 @@ jobs:
     with:
       tag: ${{ needs.prepare.outputs.tag }}
       ref: ${{ needs.prepare.outputs.sha }}
-    secrets: inherit
     permissions:
       contents: read
       packages: write
 
   deploy:
     name: Deploy dev
+    permissions:
+      contents: read
     needs:
       - prepare
       - build
@@ -66,6 +65,8 @@ jobs:
       name: dev
     env:
       DEPLOY_TAG: ${{ needs.prepare.outputs.tag }}
+      IMAGE: ${{ needs.build.outputs.image }}
+      DIGEST: ${{ needs.build.outputs.digest }}
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
     steps:
       - name: Check out repository
@@ -76,14 +77,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
+          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
             docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull
       - name: Start dev services
         shell: bash
         run: |
           set -euo pipefail
-          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
-            docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
+            docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d --no-build --pull never
 
   smoke-test:
     name: Smoke test dev
