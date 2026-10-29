@@ -72,6 +72,11 @@ cp deploy/blue-green/.env.example deploy/blue-green/.env
 POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env up -d
 ```
 
+`--env-file` solo configura esa invocación de Compose: exporta también
+`POSTGRES_PASSWORD`, `COMPOSE_PROJECT_NAME`, `BLUE_GREEN_PORT` e `IMAGE` con los
+mismos valores antes de usar los scripts. Las variables exportadas tienen
+precedencia sobre el fichero.
+
 Estado: `status` lee el `proxy_pass` efectivo del proxy. El volumen `proxy-state` conserva el color al recrearlo; un proyecto nuevo arranca con `ACTIVE_SLOT=blue`. `down -v` elimina también este estado.
 
 ## Uso de `switch.sh`
@@ -88,10 +93,10 @@ Script bash (`set -euo pipefail`), compatible con bash 3.2 (macOS) y bash 5 (Lin
 
 Detalles:
 
-- `switch` es **idempotente**: si ya estás en `green` y pides `switch green`, no hace nada.
+- `switch` es **idempotente**: si ya estás en `green` y pides `switch green`, no cambia el tráfico. Comprueba que `/version` coincida con el slot seleccionado.
 - `deploy` detecta el slot inactivo, hace `BLUE_TAG=<tag> docker compose up -d <inactive>` (o `GREEN_TAG`), espera `healthy` vía `docker inspect --format '{{.State.Health.Status}}'` con timeout acotado (60 s), hace `switch` y comprueba `curl http://localhost:${BLUE_GREEN_PORT}/version | jq -e '.version == $tag'`.
 - `rollback` mueve el proxy al color opuesto y verifica que `/version` coincida con la respuesta directa de ese slot. Un error o versión incorrecta devuelve código distinto de cero.
-- `switch` re-renderiza y recarga nginx dentro del proxy y guarda el color en su volumen de estado. `deploy` ejecuta primero las migraciones de la imagen del tag nuevo mediante `MIGRATE_TAG`; no restaura el esquema en un rollback.
+- `switch` re-renderiza y recarga nginx dentro del proxy y guarda el color en su volumen de estado. Si la verificación posterior falla, devuelve un error pero no revierte automáticamente el corte. `deploy` ejecuta primero las migraciones de la imagen del tag nuevo mediante `MIGRATE_TAG`; no restaura el esquema en un rollback.
 
 > Si el proxy no está levantado, `switch`/`deploy` avisan: `POSTGRES_PASSWORD=... docker compose -f deploy/blue-green/compose.yml up -d`.
 

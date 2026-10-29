@@ -185,6 +185,18 @@ def test_demo_rejects_empty_switch_version(tmp_path):
     assert run(str(DEMO / "switch.sh"), "status").stdout.splitlines()[0] == before
 
 
+def test_switch_rejects_wrong_version(tmp_path):
+    run(str(DEMO / "switch.sh"), "switch", "blue")
+    result = subprocess.run(
+        [str(DEMO / "switch.sh"), "switch", "green"],
+        capture_output=True,
+        text=True,
+        env=curl_fault_env(tmp_path, 0),
+    )
+    assert "audit-injected-mismatch" in result.stdout
+    assert result.returncode != 0
+
+
 def test_rollback_rejects_wrong_version(tmp_path):
     result = subprocess.run(
         [str(DEMO / "switch.sh"), "rollback"],

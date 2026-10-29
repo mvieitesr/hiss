@@ -51,9 +51,10 @@ Environment:
   BLUE_TAG / GREEN_TAG  Override image tags for the respective slot (used by deploy)
 
 Examples:
-  POSTGRES_PASSWORD=secret ./switch.sh status
+  export POSTGRES_PASSWORD=secret
+  ./switch.sh status
   ./switch.sh switch green
-  POSTGRES_PASSWORD=secret ./switch.sh deploy 0.1.0
+  ./switch.sh deploy 0.1.0
   ./switch.sh rollback
 EOF
 }
@@ -72,6 +73,13 @@ get_active() {
     blue|green) printf '%s\n' "$slot" ;;
     *) printf "Error: proxy configuration has no unique active slot.\n" >&2; return 1 ;;
   esac
+}
+
+# Read a slot's version directly before routing traffic to it.
+slot_version() {
+  docker compose -f "$COMPOSE_FILE" exec -T "$1" python -c \
+    'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/version", timeout=5).read().decode())' |
+    jq -er '.version | select(type == "string" and length > 0)'
 }
 
 # Print status with color and extra context
@@ -128,13 +136,22 @@ do_switch() {
     *) printf "Error: target must be blue or green, got '%s'\n" "$target" >&2; usage; exit 1 ;;
   esac
 
-  local current
+  if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf "Error: switch requires curl and jq to verify the version\n" >&2
+    return 1
+  fi
+  local current expected
   current="$(get_active)"
+  if ! expected="$(slot_version "$target")"; then
+    printf "Error: cannot read the target slot version\n" >&2
+    return 1
+  fi
   if [ "$current" = "$target" ]; then
     # Reconcile the startup preference even if the proxy was changed externally.
     docker compose -f "$COMPOSE_FILE" exec -T proxy sh -c "printf '%s\\n' '$target' > /var/lib/hiss-blue-green/active-slot"
     printf "Already on ${YELLOW}%s${RESET} — no change (idempotent)\n" "$target"
-    return 0
+    verify_version "$expected"
+    return
   fi
 
   printf "Switching from %s to %s...\n" "$current" "$target"
@@ -162,12 +179,9 @@ do_switch() {
     printf 'Switched to %sgreen%s\n' "$GREEN" "$RESET"
   fi
 
-  # Brief pause then smoke-test the proxy (best effort, don't fail switch if curl fails)
+  # Require the proxy to serve the selected slot's non-empty version.
   sleep 1
-  if command -v curl >/dev/null 2>&1; then
-    printf "Smoke check: curl http://localhost:%s/version\n" "$PORT"
-    curl --fail --silent --show-error --max-time 5 "http://localhost:${PORT}/version" 2>&1 | head -n 5 || printf "Warning: proxy not yet reachable (may need a moment)\n" >&2
-  fi
+  verify_version "$expected"
 }
 
 # Verify that the proxy serves the expected non-empty version.
@@ -246,9 +260,7 @@ do_rollback() {
   else
     inactive="blue"
   fi
-  if ! expected="$(docker compose -f "$COMPOSE_FILE" exec -T "$inactive" python -c \
-    'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/version", timeout=5).read().decode())' |
-    jq -er '.version | select(type == "string" and length > 0)')"; then
+  if ! expected="$(slot_version "$inactive")"; then
     printf "Error: cannot read the rollback slot version\n" >&2
     return 1
   fi
