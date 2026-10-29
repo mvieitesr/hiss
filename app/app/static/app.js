@@ -691,7 +691,7 @@ function renderIssueDetailView() {
   if (state.editingTitle) {
     content += `
       <form class="detail-title-edit-form" onsubmit="app.handleSaveTitle(event, ${escapeHtml(issue.id)})">
-        <input type="text" class="form-control form-control-app detail-title-input" id="editTitleInput" value="${escapeHtml(issue.title)}" required autofocus>
+        <input type="text" class="form-control form-control-app detail-title-input" id="editTitleInput" value="${escapeHtml(issue.title)}" maxlength="300" required autofocus>
         <button type="submit" class="btn btn-sm btn-primary">Save</button>
         <button type="button" class="btn btn-sm btn-light border" onclick="app.cancelEditTitle()">Cancel</button>
       </form>

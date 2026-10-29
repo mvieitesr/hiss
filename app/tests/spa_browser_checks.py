@@ -186,9 +186,29 @@ def h10(api, page, suffix):
     page.get_by_text("Retry project", exact=True).wait_for(timeout=2000)
 
 
+def h04(api, page, suffix):
+    key = f"L{suffix}"
+    post(api, "projects", {"key": key, "name": "Limits project"})
+    issue = post(api, f"projects/{key}/issues", {"title": "Limits issue"})
+    page.goto(f"{BASE}/#/issues/{issue['id']}")
+    page.get_by_role("heading", name="Limits issue").wait_for()
+    expected = {
+        "projectKeyInput": "50",
+        "projectNameInput": "200",
+        "issueTitleInput": "300",
+        "newLabelNameInput": "100",
+    }
+    for input_id, limit in expected.items():
+        actual = page.locator(f"#{input_id}").get_attribute("maxlength")
+        assert actual == limit, f"{input_id}: expected {limit}, got {actual}"
+    page.locator(".detail-title-actions button").click()
+    assert page.locator("#editTitleInput").get_attribute("maxlength") == "300"
+
+
 def main():
     checks = {
-        "H02": h02, "H06": h06, "H07-error": h07_error, "H07-flag": h07_flag, "H10": h10
+        "H02": h02, "H06": h06, "H07-error": h07_error, "H07-flag": h07_flag,
+        "H10": h10, "H04": h04,
     }
     requested = sys.argv[1:] or list(checks)
     unknown = set(requested) - checks.keys()
