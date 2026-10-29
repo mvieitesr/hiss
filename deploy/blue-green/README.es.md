@@ -2,7 +2,7 @@
 
 Demo autocontenido de despliegue **blue-green** con Docker Compose. Dos slots idénticos (`blue` y `green`) detrás de un proxy nginx; solo el proxy publica un puerto en el host. El alumno cambia el tráfico con `switch.sh` y observa `/version` sin reiniciar contenedores de aplicación.
 
-Todo vive en `deploy/blue-green/` y no toca los Environments normales (`deploy/compose.yml` + `deploy/*.env`). No hay CI ni construcción de imágenes: usa imágenes ya publicadas. El valor inicial de `IMAGE` es `ghcr.io/vieitesss/hiss` (público); cada fork puede usar su propio repositorio GHCR con `IMAGE`.
+Todo vive en `deploy/blue-green/` y no toca los Environments normales (`deploy/compose.yml` + `deploy/*.env`). No hay CI ni construcción de imágenes: requiere imágenes publicadas. El valor inicial de `IMAGE` es `ghcr.io/mvieitesr/hiss`; el responsable del repositorio publicará `0.1.0`, `0.1.1` y `0.1.0-snapshot` antes de la práctica. Cada fork puede usar su propio repositorio GHCR con `IMAGE`.
 
 > Código y comentarios en inglés; documentación en español (como en `docs/setup.md`).
 
@@ -33,7 +33,7 @@ El proxy usa `envsubst '${ACTIVE_SLOT}'` (lista explícita) para no vaciar `$hos
 
 ## Requisitos
 
-- Docker Engine + Compose v2
+- Docker Engine + plugin Compose compatible con `docker compose`
 - `curl` y `jq` (para las comprobaciones de versión)
 - `POSTGRES_PASSWORD` en el entorno (nunca versionada)
 
@@ -66,10 +66,11 @@ export IMAGE=ghcr.io/tu-usuario/hiss   # el fork debe haber publicado los tags
 export BLUE_TAG=0.1.0 GREEN_TAG=0.1.1
 docker compose -f deploy/blue-green/compose.yml up -d --wait --wait-timeout 60
 
-# O vía fichero .env
+# O vía fichero .env: elimina primero las variables que quieres definir en él
+unset BLUE_GREEN_PORT IMAGE BLUE_TAG GREEN_TAG
 cp deploy/blue-green/.env.example deploy/blue-green/.env
 # edita BLUE_TAG, GREEN_TAG, BLUE_GREEN_PORT...
-POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env up -d
+docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env up -d --wait --wait-timeout 60
 ```
 
 `--env-file` solo configura esa invocación de Compose: exporta también
@@ -195,7 +196,7 @@ docker ps -a | grep hiss-blue-green || echo "limpio"
 docker volume ls | grep hiss-blue-green || echo "volumen limpio"
 ```
 
-El proyecto existe para que `0.1.0`/`0.1.1` (o cualquier tag publicado en el repositorio `IMAGE` elegido) se puedan `pull`. El repositorio por defecto es público; un GHCR privado puede requerir autenticación. No se construye nada localmente y no hay job de CI para esta demo.
+Una vez publicados por el responsable del repositorio, `0.1.0`/`0.1.1` se podrán descargar del repositorio por defecto; alternativamente, usa tags publicados en el `IMAGE` elegido. Un GHCR privado puede requerir autenticación. No se construye nada localmente y no hay job de CI para esta demo.
 
 Los tests de integración son manuales y **modifican el despliegue** (hacen deploy,
 switch y recrean el proxy). Ejecútalos solo contra una demo desechable ya
@@ -212,13 +213,13 @@ Sin esta confirmación explícita, los tests se saltan para evitar tocar una dem
 
 | Variable | Por defecto | Dónde se usa |
 |---|---:|---|
-| `POSTGRES_PASSWORD` | *(requerida)* | `db`, `blue`, `green` (`DATABASE_URL`) |
-| `BLUE_TAG` | `0.1.0` | `blue` (`ghcr.io/vieitesss/hiss:${BLUE_TAG}` y `APP_VERSION`) |
+| `POSTGRES_PASSWORD` | *(requerida)* | `db`, `migrate`, `blue`, `green` y scripts |
+| `BLUE_TAG` | `0.1.0` | `blue` (`ghcr.io/mvieitesr/hiss:${BLUE_TAG}` y `APP_VERSION`) |
 | `GREEN_TAG` | `0.1.1` | `green` |
 | `MIGRATE_TAG` | `GREEN_TAG` | imagen del migrador; `deploy` lo fija al tag desplegado |
 | `BLUE_GREEN_PORT` | `9000` | `proxy` (`host:container`) y `switch.sh` (`curl`) |
 | `ACTIVE_SLOT` | `blue` | `proxy` inicial si el volumen aún no guarda un color |
-| `IMAGE` | `ghcr.io/vieitesss/hiss` | `blue`/`green` (permite otro registro) |
+| `IMAGE` | `ghcr.io/mvieitesr/hiss` | `migrate`/`blue`/`green` (permite otro registro) |
 | `COMPOSE_PROJECT_NAME` | `hiss-blue-green` | Aislamiento (no colisiona con `hiss-dev`/`hiss-staging`/`hiss-prod` en 8001-8003) |
 
 > **Puertos:** La demo usa `9000` para no colisionar con `8001`/`8002`/`8003` de los tres Environments normales. `8090` aparece en la issue #6 como ejemplo histórico; el valor vigente es `9000` (override con `BLUE_GREEN_PORT`).
