@@ -9,7 +9,7 @@ removes its own Projects and Labels; never point it at a shared database.
 import os
 import sys
 import uuid
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 from playwright.sync_api import Error as PlaywrightError
@@ -110,8 +110,68 @@ def h06(api, page, suffix):
     assert page.get_by_text("old failure").count() == 0
 
 
+def h07_error(api, page, suffix):
+    key_a, key_b = f"A{suffix}", f"B{suffix}"
+    post(api, "projects", {"key": key_a, "name": "Project A"})
+    post(api, "projects", {"key": key_b, "name": "Project B"})
+    post(api, f"projects/{key_a}/issues", {"title": "Only in A"})
+    page.goto(f"{BASE}/#/projects/{key_a}")
+    page.get_by_text("Only in A", exact=True).wait_for()
+    page.route(
+        f"**/api/v1/projects/{key_b}/issues",
+        lambda route: route.fulfill(
+            status=503, content_type="application/json", body='{"message":"Issue list unavailable"}'
+        ),
+    )
+    page.evaluate(f"location.hash = '#/projects/{key_b}'")
+    page.get_by_text("Issue list unavailable", exact=True).wait_for()
+    assert page.get_by_text("Only in A", exact=True).count() == 0, "Issue from Project A shown under B"
+    assert page.get_by_role("heading", name="Could not load issues").count() == 1, (
+        "failure was rendered as an empty or stale issue list"
+    )
+
+
+def h07_flag(api, page, suffix):
+    key, label = f"F{suffix}", f"filter-{suffix}"
+    post(api, "projects", {"key": key, "name": "Filter project"})
+    post(api, f"projects/{key}/issues", {"title": "Open issue"})
+    post(api, f"projects/{key}/issues", {"title": "Done issue", "status": "done"})
+    post(api, "labels", {"name": label})
+    requests = []
+
+    def flag_off(route):
+        params = parse_qs(urlparse(route.request.url).query)
+        requests.append(params)
+        if "label" in params:
+            route.fulfill(
+                status=400,
+                content_type="application/json",
+                body='{"error":"feature_disabled","message":"Label filtering disabled"}',
+            )
+        else:
+            route.continue_()
+
+    page.goto(f"{BASE}/#/projects/{key}")
+    page.get_by_text("Open issue", exact=True).wait_for()
+    page.route(f"**/api/v1/projects/{key}/issues?*", flag_off)
+    page.locator(".filter-toggle-btn").click()
+    page.locator("#filterStatus").select_option("open")
+    page.get_by_text("Done issue", exact=True).wait_for(state="detached")
+    page.locator(".filter-toggle-btn").click()
+    page.locator("#filterLabel").select_option(label)
+    page.get_by_text("Label filtering disabled", exact=True).wait_for()
+    page.wait_for_load_state("networkidle")
+    assert page.locator("#filterLabel").input_value() == "", "disabled Label still selected"
+    assert page.locator("#filterStatus").input_value() == "open", "status filter was lost"
+    assert page.get_by_text("Open issue", exact=True).count() == 1
+    assert page.get_by_text("Done issue", exact=True).count() == 0
+    assert not page.locator(".filter-pill").filter(has_text="Label:").count()
+    assert any("label" in params for params in requests), requests
+    assert requests[-1] == {"status": ["open"]}, f"missing unlabelled retry: {requests}"
+
+
 def main():
-    checks = {"H02": h02, "H06": h06}
+    checks = {"H02": h02, "H06": h06, "H07-error": h07_error, "H07-flag": h07_flag}
     requested = sys.argv[1:] or list(checks)
     unknown = set(requested) - checks.keys()
     if unknown:
@@ -137,6 +197,11 @@ def main():
             for project in projects:
                 if suffix in project["key"]:
                     response = api.delete("projects/" + quote(project["key"], safe=""))
+                    response.raise_for_status()
+            labels = api.get("labels").json()
+            for label in labels:
+                if suffix in label["name"]:
+                    response = api.delete("labels/" + quote(label["name"], safe=""))
                     response.raise_for_status()
     print(f"SUMMARY {len(failures)} failing checks: {failures}", flush=True)
     return 1 if failures else 0

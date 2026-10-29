@@ -348,6 +348,7 @@ function renderProjectsList(projects) {
 
 async function loadProjectIssuesView(projectKey, epoch = state.navigationEpoch) {
   if (!isCurrentProject(projectKey, epoch)) return;
+  if (!state.currentProject || state.currentProject.key !== projectKey) state.currentProjectIssues = [];
   try {
     const projects = await apiRequest(`${API_BASE}/projects`);
     if (!isCurrentNavigation(epoch)) return;
@@ -401,12 +402,18 @@ async function fetchAndRenderIssues(epoch = state.navigationEpoch) {
     renderProjectIssuesView();
   } catch (error) {
     if (!isCurrentNavigation(epoch) || requestId !== state.issueRequestId) return;
-    if (error.data && error.data.error === 'feature_disabled') {
+    if (error.data && error.data.error === 'feature_disabled' && state.filters.label) {
+      state.filters.label = '';
+      state.currentProjectIssues = [];
       showAlert(error.message || 'Label filtering is not available in this environment.', 'warning');
-    } else {
-      showAlert(error.message || 'Failed to fetch issues');
+      const main = document.getElementById('mainContainer');
+      if (main) main.innerHTML = '<div class="loading-state" aria-label="Loading">Loading…</div>';
+      await fetchAndRenderIssues(epoch);
+      return;
     }
-    renderProjectIssuesView();
+    state.currentProjectIssues = [];
+    showAlert(error.message || 'Failed to fetch issues');
+    renderErrorState('Could not load issues', 'Check the API connection and try again.', '<a class="btn btn-sm btn-light border" href="#/projects">Back to projects</a>');
   }
 }
 
