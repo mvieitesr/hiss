@@ -1,7 +1,7 @@
 """Optional browser checks against an isolated, running Flask/Postgres instance.
 
 Run with httpx and playwright installed outside the repository:
-    python app/tests/spa_browser_checks.py [H02 ...]
+    python app/tests/spa_browser_checks.py [check_project_key_script_injection ...]
 Set HISS_BROWSER_BASE and CHROMIUM_PATH as needed. The script creates and
 removes its own Projects and Labels; never point it at a shared database.
 """
@@ -25,7 +25,7 @@ def post(api, path, body):
     return response.json()
 
 
-def h02(api, page, suffix):
+def check_project_key_script_injection(api, page, suffix):
     key = f"x{suffix}');window.__auditXss=1;void('"
     post(api, "projects", {"key": key, "name": "XSS demo"})
     dialogs = []
@@ -53,7 +53,7 @@ def h02(api, page, suffix):
     assert page.evaluate("location.hash") == "#/projects"
 
 
-def h06(api, page, suffix):
+def check_stale_issue_responses(api, page, suffix):
     key = f"C{suffix}"
     post(api, "projects", {"key": key, "name": "Race project"})
     issue_a = post(api, f"projects/{key}/issues", {"title": "Race issue A"})
@@ -127,7 +127,7 @@ def h06(api, page, suffix):
     assert page.get_by_text("old failure").count() == 0
 
 
-def h06_aba(api, page, suffix):
+def check_issue_navigation_back_to_original(api, page, suffix):
     key = f"N{suffix}"
     post(api, "projects", {"key": key, "name": "ABA project"})
     issue_a = post(api, f"projects/{key}/issues", {"title": "Old A"})
@@ -161,7 +161,7 @@ def h06_aba(api, page, suffix):
     )
 
 
-def h06_project(api, page, suffix):
+def check_stale_project_issues_response(api, page, suffix):
     key_a, key_b = f"G{suffix}", f"H{suffix}"
     post(api, "projects", {"key": key_a, "name": "Project race A"})
     post(api, "projects", {"key": key_b, "name": "Project race B"})
@@ -187,7 +187,7 @@ def h06_project(api, page, suffix):
     )
 
 
-def h07_error(api, page, suffix):
+def check_project_issues_load_error(api, page, suffix):
     key_a, key_b = f"A{suffix}", f"B{suffix}"
     post(api, "projects", {"key": key_a, "name": "Project A"})
     post(api, "projects", {"key": key_b, "name": "Project B"})
@@ -210,7 +210,7 @@ def h07_error(api, page, suffix):
     )
 
 
-def h07_flag(api, page, suffix):
+def check_disabled_label_filter_retry(api, page, suffix):
     key, label = f"F{suffix}", f"filter-{suffix}"
     post(api, "projects", {"key": key, "name": "Filter project"})
     post(api, f"projects/{key}/issues", {"title": "Open issue"})
@@ -249,7 +249,7 @@ def h07_flag(api, page, suffix):
     assert requests[-1] == {"status": ["open"]}, f"missing unlabelled retry: {requests}"
 
 
-def h10(api, page, suffix):
+def check_projects_retry(api, page, suffix):
     post(api, "projects", {"key": f"R{suffix}", "name": "Retry project"})
     path = "**/api/v1/projects"
     page.route(
@@ -265,7 +265,7 @@ def h10(api, page, suffix):
     page.get_by_text("Retry project", exact=True).wait_for(timeout=2000)
 
 
-def h04(api, page, suffix):
+def check_input_length_limits(api, page, suffix):
     key = f"L{suffix}"
     post(api, "projects", {"key": key, "name": "Limits project"})
     issue = post(api, f"projects/{key}/issues", {"title": "Limits issue"})
@@ -384,14 +384,14 @@ def happy(api, page, suffix):
 
 def main():
     checks = {
-        "H02": h02,
-        "H06": h06,
-        "H06-aba": h06_aba,
-        "H06-project": h06_project,
-        "H07-error": h07_error,
-        "H07-flag": h07_flag,
-        "H10": h10,
-        "H04": h04,
+        "check_project_key_script_injection": check_project_key_script_injection,
+        "check_stale_issue_responses": check_stale_issue_responses,
+        "check_issue_navigation_back_to_original": check_issue_navigation_back_to_original,
+        "check_stale_project_issues_response": check_stale_project_issues_response,
+        "check_project_issues_load_error": check_project_issues_load_error,
+        "check_disabled_label_filter_retry": check_disabled_label_filter_retry,
+        "check_projects_retry": check_projects_retry,
+        "check_input_length_limits": check_input_length_limits,
         "happy": happy,
     }
     requested = sys.argv[1:] or list(checks)
