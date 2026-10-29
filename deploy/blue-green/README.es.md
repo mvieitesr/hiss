@@ -2,7 +2,7 @@
 
 Demo autocontenido de despliegue **blue-green** con Docker Compose. Dos slots idénticos (`blue` y `green`) detrás de un proxy nginx; solo el proxy publica un puerto en el host. El alumno cambia el tráfico con `switch.sh` y observa `/version` sin reiniciar contenedores de aplicación.
 
-Todo vive en `deploy/blue-green/` y no toca los Environments normales (`deploy/compose.yml` + `deploy/*.env`). No hay CI ni construcción de imágenes: usa imágenes ya publicadas en `ghcr.io/vieitesss/hiss` (públicas, sin `docker login`).
+Todo vive en `deploy/blue-green/` y no toca los Environments normales (`deploy/compose.yml` + `deploy/*.env`). No hay CI ni construcción de imágenes: usa imágenes ya publicadas. El valor inicial de `IMAGE` es `ghcr.io/vieitesss/hiss` (público); cada fork puede usar su propio repositorio GHCR con `IMAGE`.
 
 > Código y comentarios en inglés; documentación en español (como en `docs/setup.md`).
 
@@ -11,25 +11,25 @@ Todo vive en `deploy/blue-green/` y no toca los Environments normales (`deploy/c
 | Servicio | Imagen | Puerto host | Notas |
 |---|---:|---:|---|
 | `db` | `postgres:16-alpine` | — (solo `db:5432` interno) | Un único Postgres compartido (simplificación docente) |
-| `blue` | `ghcr.io/vieitesss/hiss:${BLUE_TAG}` | — | `healthcheck` idéntico a `deploy/compose.yml` (`/healthz`) |
-| `green` | `ghcr.io/vieitesss/hiss:${GREEN_TAG}` | — | Mismo código, distinto tag |
+| `migrate` | `${IMAGE}:${MIGRATE_TAG}` | — | Ejecuta Alembic una vez antes de arrancar los slots; por defecto usa `GREEN_TAG` |
+| `blue` | `${IMAGE}:${BLUE_TAG}` | — | Arranca gunicorn sin ejecutar migraciones; comprueba `/healthz` |
+| `green` | `${IMAGE}:${GREEN_TAG}` | — | Mismo contrato, distinto tag |
 | `proxy` | `nginx:1.27-alpine` | `${BLUE_GREEN_PORT:-9000}:80` | **Único puerto publicado**. Renderiza `nginx.conf.template` con `envsubst '${ACTIVE_SLOT}'` |
 
 Ficheros:
 
 ```
 deploy/blue-green/
-├── compose.yml            # 4 servicios, red única, proyecto hiss-blue-green
+├── compose.yml            # 5 servicios, red única, proyecto hiss-blue-green
 ├── nginx.conf.template    # proxy_pass http://${ACTIVE_SLOT}:8000 + headers + timeouts
 ├── switch.sh              # status / switch / deploy / rollback
 ├── .env.example           # valores por defecto (no secretos)
-├── .active-slot           # estado local (blue|green, gitignored)
 └── README.es.md           # este fichero
 ```
 
 `compose.yml` es independiente: `name: ${COMPOSE_PROJECT_NAME:-hiss-blue-green}` y no referencia `deploy/dev.env` ni otros ficheros del repo. Las dos apps comparten `DATABASE_URL` hacia `db:5432` y exponen `APP_VERSION=${BLUE_TAG|GREEN_TAG}`.
 
-El proxy usa `envsubst '${ACTIVE_SLOT}'` (lista explícita) para no vaciar `$host`, `$remote_addr`, etc. Tras renderizar, `proxy_pass` queda literal (`http://blue:8000` o `http://green:8000`); `nginx -s reload` re-resuelve el DNS de Docker. No se necesita `resolver 127.0.0.11` porque no se usa variable de nginx en `proxy_pass`.
+El proxy usa `envsubst '${ACTIVE_SLOT}'` (lista explícita) para no vaciar `$host`, `$remote_addr`, etc. Tras renderizar, `proxy_pass` queda literal (`http://blue:8000` o `http://green:8000`); `nginx -s reload` re-resuelve el DNS de Docker. No se necesita `resolver 127.0.0.11` porque no se usa variable de nginx en `proxy_pass`. Un volumen `proxy-state`, aislado por proyecto Compose, conserva el último color al recrear el proxy.
 
 ## Requisitos
 
@@ -40,8 +40,10 @@ El proxy usa `envsubst '${ACTIVE_SLOT}'` (lista explícita) para no vaciar `$hos
 ## Puesta en marcha (3 comandos)
 
 ```sh
-# 1. Levantar todo (desde la raíz del repo)
-POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env.example up -d
+# 1. Mantener el mismo secreto en todos los comandos de la sesión
+export POSTGRES_PASSWORD=changeme
+# Levantar todo y esperar a que blue, green y proxy estén healthy
+docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env.example up -d --wait --wait-timeout 60
 
 # 2. Ver estado y versión a través del proxy (único puerto publicado)
 ./deploy/blue-green/switch.sh status
@@ -58,11 +60,11 @@ curl -s http://localhost:9000/version | jq .
 Personalización sin editar `compose.yml`:
 
 ```sh
-# Puerto distinto (por defecto 9000, evita colisión con 8001/8002/8003 de deploy/)
-BLUE_GREEN_PORT=9001 POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml up -d
-
-# Tags distintos por slot (por defecto 0.1.0 / 0.1.0)
-BLUE_TAG=0.1.0 GREEN_TAG=0.1.1 POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml up -d
+# Mantén estos valores exportados para Compose y para ambos scripts
+export BLUE_GREEN_PORT=9001
+export IMAGE=ghcr.io/tu-usuario/hiss   # el fork debe haber publicado los tags
+export BLUE_TAG=0.1.0 GREEN_TAG=0.1.1
+docker compose -f deploy/blue-green/compose.yml up -d --wait --wait-timeout 60
 
 # O vía fichero .env
 cp deploy/blue-green/.env.example deploy/blue-green/.env
@@ -70,14 +72,19 @@ cp deploy/blue-green/.env.example deploy/blue-green/.env
 POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env up -d
 ```
 
-Estado local: `deploy/blue-green/.active-slot` guarda `blue` o `green` (por defecto `blue` si no existe). Está en `.gitignore` junto con `deploy/blue-green/nginx.conf` renderizado.
+`--env-file` solo configura esa invocación de Compose: exporta también
+`POSTGRES_PASSWORD`, `COMPOSE_PROJECT_NAME`, `BLUE_GREEN_PORT` e `IMAGE` con los
+mismos valores antes de usar los scripts. Las variables exportadas tienen
+precedencia sobre el fichero.
+
+Estado: `status` lee el `proxy_pass` efectivo del proxy. El volumen `proxy-state` conserva el color al recrearlo; un proyecto nuevo arranca con `ACTIVE_SLOT=blue`. `down -v` elimina también este estado.
 
 ## Uso de `switch.sh`
 
 Script bash (`set -euo pipefail`), compatible con bash 3.2 (macOS) y bash 5 (Linux), muy comentado (comentarios en inglés: es un artefacto docente).
 
 ```sh
-./deploy/blue-green/switch.sh status              # activo actual (lee .active-slot, por defecto blue)
+./deploy/blue-green/switch.sh status              # activo real según el proxy
 ./deploy/blue-green/switch.sh switch blue|green   # atajo: ./deploy/blue-green/switch.sh green
 ./deploy/blue-green/switch.sh deploy <tag>        # despliega <tag> en el slot INACTIVO, espera healthy (≤60s), hace switch y verifica /version
 ./deploy/blue-green/switch.sh rollback            # vuelve al otro color (switch al inactivo)
@@ -86,10 +93,10 @@ Script bash (`set -euo pipefail`), compatible con bash 3.2 (macOS) y bash 5 (Lin
 
 Detalles:
 
-- `switch` es **idempotente**: si ya estás en `green` y pides `switch green`, no hace nada.
+- `switch` es **idempotente**: si ya estás en `green` y pides `switch green`, no cambia el tráfico. Comprueba que `/version` coincida con el slot seleccionado.
 - `deploy` detecta el slot inactivo, hace `BLUE_TAG=<tag> docker compose up -d <inactive>` (o `GREEN_TAG`), espera `healthy` vía `docker inspect --format '{{.State.Health.Status}}'` con timeout acotado (60 s), hace `switch` y comprueba `curl http://localhost:${BLUE_GREEN_PORT}/version | jq -e '.version == $tag'`.
-- `rollback` equivale a `switch` al color opuesto al actual (demuestra que rollback = volver a mover el proxy).
-- Todas las operaciones re-renderizan dentro del proxy: `docker compose exec proxy sh -c "ACTIVE_SLOT=<target> envsubst '\${ACTIVE_SLOT}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -s reload"` y actualizan `.active-slot`.
+- `rollback` mueve el proxy al color opuesto y verifica que `/version` coincida con la respuesta directa de ese slot. Un error o versión incorrecta devuelve código distinto de cero.
+- `switch` re-renderiza y recarga nginx dentro del proxy y guarda el color en su volumen de estado. Si la verificación posterior falla, devuelve un error pero no revierte automáticamente el corte. `deploy` ejecuta primero las migraciones de la imagen del tag nuevo mediante `MIGRATE_TAG`; no restaura el esquema en un rollback.
 
 > Si el proxy no está levantado, `switch`/`deploy` avisan: `POSTGRES_PASSWORD=... docker compose -f deploy/blue-green/compose.yml up -d`.
 
@@ -126,7 +133,7 @@ sequenceDiagram
     participant B as blue:8000
     participant G as green:8000
     participant S as switch.sh
-    participant F as .active-slot
+    participant F as Volumen proxy-state
 
     C->>N: GET /version
     N->>B: proxy_pass http://blue:8000
@@ -134,7 +141,7 @@ sequenceDiagram
     N-->>C: 200 OK (blue)
 
     Note over S,F: ./switch.sh switch green
-    S->>F: lee .active-slot (blue) → inactivo = green
+    S->>N: lee proxy_pass (blue) → inactivo = green
     S->>N: ACTIVE_SLOT=green envsubst '${ACTIVE_SLOT}' < nginx.conf.template > default.conf
     S->>N: nginx -s reload
     N-->>S: reload ok
@@ -173,11 +180,8 @@ Rollback en blue-green es `switch` al color anterior — por eso RA4 (rollback) 
 La demo no deja contenedores huérfanos. Secuencia recomendada (con tiempos acotados):
 
 ```sh
-POSTGRES_PASSWORD=changeme docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env.example up -d
-# Espera healthy ≤60 s (blue/green hacen /healthz)
-for svc in blue green proxy; do
-  timeout 60 bash -c "until docker inspect --format '{{.State.Health.Status}}' \$(docker compose -f deploy/blue-green/compose.yml ps -q \$svc) 2>/dev/null | grep -q healthy; do sleep 2; done"
-done
+export POSTGRES_PASSWORD=changeme
+docker compose -f deploy/blue-green/compose.yml --env-file deploy/blue-green/.env.example up -d --wait --wait-timeout 60
 curl --fail --retry 10 --retry-delay 2 --retry-connrefused http://localhost:9000/version
 
 ./deploy/blue-green/switch.sh switch green
@@ -191,7 +195,18 @@ docker ps -a | grep hiss-blue-green || echo "limpio"
 docker volume ls | grep hiss-blue-green || echo "volumen limpio"
 ```
 
-El proyecto existe para que `0.1.0`/`0.1.1` (o cualquier tag publicado en `ghcr.io/vieitesss/hiss`) se puedan `pull` sin autenticación. No se construye nada localmente y no hay job de CI para esta demo (es deliberadamente manual para que el alumno la ejecute).
+El proyecto existe para que `0.1.0`/`0.1.1` (o cualquier tag publicado en el repositorio `IMAGE` elegido) se puedan `pull`. El repositorio por defecto es público; un GHCR privado puede requerir autenticación. No se construye nada localmente y no hay job de CI para esta demo.
+
+Los tests de integración son manuales y **modifican el despliegue** (hacen deploy,
+switch y recrean el proxy). Ejecútalos solo contra una demo desechable ya
+levantada con un `COMPOSE_PROJECT_NAME` distinto de `hiss-blue-green`, manteniendo
+las mismas variables exportadas de Compose:
+
+```sh
+BLUE_GREEN_TEST_PROJECT="$COMPOSE_PROJECT_NAME" pytest deploy/blue-green/tests
+```
+
+Sin esta confirmación explícita, los tests se saltan para evitar tocar una demo existente.
 
 ## Variables de entorno
 
@@ -199,9 +214,10 @@ El proyecto existe para que `0.1.0`/`0.1.1` (o cualquier tag publicado en `ghcr.
 |---|---:|---|
 | `POSTGRES_PASSWORD` | *(requerida)* | `db`, `blue`, `green` (`DATABASE_URL`) |
 | `BLUE_TAG` | `0.1.0` | `blue` (`ghcr.io/vieitesss/hiss:${BLUE_TAG}` y `APP_VERSION`) |
-| `GREEN_TAG` | `0.1.0` | `green` |
+| `GREEN_TAG` | `0.1.1` | `green` |
+| `MIGRATE_TAG` | `GREEN_TAG` | imagen del migrador; `deploy` lo fija al tag desplegado |
 | `BLUE_GREEN_PORT` | `9000` | `proxy` (`host:container`) y `switch.sh` (`curl`) |
-| `ACTIVE_SLOT` | `blue` | `proxy` (render inicial) |
+| `ACTIVE_SLOT` | `blue` | `proxy` inicial si el volumen aún no guarda un color |
 | `IMAGE` | `ghcr.io/vieitesss/hiss` | `blue`/`green` (permite otro registro) |
 | `COMPOSE_PROJECT_NAME` | `hiss-blue-green` | Aislamiento (no colisiona con `hiss-dev`/`hiss-staging`/`hiss-prod` en 8001-8003) |
 
@@ -211,12 +227,11 @@ El proyecto existe para que `0.1.0`/`0.1.1` (o cualquier tag publicado en `ghcr.
 
 - `nginx.conf.template` usa `envsubst '${ACTIVE_SLOT}'` explícito para no sustituir `$host`, `$remote_addr`, etc. `proxy_set_header` y `add_header` (security headers) están incluidos.
 - Tras renderizar, `proxy_pass` es literal; `nginx -s reload` vuelve a resolver el DNS de Docker. Si se usase `proxy_pass http://$ACTIVE_SLOT:8000` con variable, haría falta `resolver 127.0.0.11` — se optó por el literal por simplicidad docente.
-- `switch.sh` descubre el estado vía `.active-slot` (si se borra, vuelve a `blue`) y respeta `BLUE_GREEN_PORT`.
-- El `.gitignore` ignora `deploy/blue-green/.active-slot`, `deploy/blue-green/nginx.conf` y `deploy/blue-green/.rendered.conf` para no versionar estado local.
+- `switch.sh` descubre el estado efectivo en el proxy y respeta `BLUE_GREEN_PORT`; necesita el mismo `POSTGRES_PASSWORD` exportado que Compose.
+- `demo-check.sh` requiere una demo ya levantada, comprueba los tres servicios y restaura el color inicial sin recrear los slots.
 
 ## Limpieza rápida
 
 ```sh
 docker compose -f deploy/blue-green/compose.yml down -v
-rm -f deploy/blue-green/.active-slot
 ```

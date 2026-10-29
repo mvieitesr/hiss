@@ -15,9 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/compose.yml"
 SWITCH_SH="$SCRIPT_DIR/switch.sh"
 PORT="${BLUE_GREEN_PORT:-9000}"
-# Use POSTGRES_PASSWORD from env if set, otherwise fallback to demo value
-# (compose requires it; .env.example uses "changeme")
-export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-changeme}"
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+  printf "Error: POSTGRES_PASSWORD must be set (use the same value as compose up).\n" >&2
+  exit 1
+fi
 
 # Colors if tty
 if [ -t 1 ]; then
@@ -46,6 +47,10 @@ wait_healthy() {
         printf "%s is healthy\n" "$svc"
         return 0
       fi
+      if [ "$status" = "unhealthy" ]; then
+        printf "Error: %s is unhealthy\n" "$svc" >&2
+        return 1
+      fi
       printf "  %s: %s (%ss)\n" "$svc" "$status" "$elapsed"
     else
       printf "  %s: not yet created (%ss)\n" "$svc" "$elapsed"
@@ -60,62 +65,70 @@ wait_healthy() {
 printf "=== Blue-green demo check ===\n"
 printf "Compose: %s\n" "$COMPOSE_FILE"
 printf "Proxy port: %s (override with BLUE_GREEN_PORT)\n" "$PORT"
-printf "Project: hiss-blue-green (isolated from hiss-dev/staging/prod on 8001-8003)\n"
-printf "Images: ghcr.io/vieitesss/hiss (public, no login needed)\n\n"
+printf "Project: %s (isolated from hiss-dev/staging/prod on 8001-8003)\n" "${COMPOSE_PROJECT_NAME:-hiss-blue-green}"
+printf "Images: %s\n\n" "${IMAGE:-ghcr.io/vieitesss/hiss}"
 
-# 1. Bring up (uses .env.example defaults for BLUE_TAG/GREEN_TAG if not overridden)
-printf "1) Starting demo (docker compose up -d)...\n"
-# Use --pull never for local images (fallback to normal pull for remote public images)
-docker compose -f "$COMPOSE_FILE" up -d --pull never || docker compose -f "$COMPOSE_FILE" up -d
-
-# 2. Wait for deps: db healthy, then blue/green healthy, then proxy reachable
-# db has no published port, so we wait via health status
+# 1. Verify the existing deployment without recreating either slot.
+printf "1) Checking the running demo...\n"
 wait_healthy "blue" || { docker compose -f "$COMPOSE_FILE" logs blue; exit 1; }
 wait_healthy "green" || { docker compose -f "$COMPOSE_FILE" logs green; exit 1; }
+wait_healthy "proxy" || { docker compose -f "$COMPOSE_FILE" logs proxy; exit 1; }
 
 printf "Waiting for proxy to be reachable on :%s ...\n" "$PORT"
 # Use host-side curl with retries (bounded)
 curl --fail --silent --show-error --max-time 5 --retry 10 --retry-delay 2 --retry-connrefused "http://localhost:${PORT}/healthz" >/dev/null
 curl --fail --silent --show-error --max-time 5 --retry 10 --retry-delay 2 --retry-connrefused "http://localhost:${PORT}/version" | jq .
 
-# 3. Check current active slot and version
+# Read each slot directly, so the proxy's answer can be checked against its target.
+slot_version() {
+  docker compose -f "$COMPOSE_FILE" exec -T "$1" python -c \
+    'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/version", timeout=5).read().decode())' |
+    jq -er '.version | select(type == "string" and length > 0)'
+}
+
+# 3. Check the current active slot and the expected version of each slot.
 printf "\n2) Current state:\n"
 "$SWITCH_SH" status
-VER_BEFORE="$(curl --fail --silent --show-error "http://localhost:${PORT}/version" | jq -r .version)"
+ACTIVE="$("$SWITCH_SH" status | awk '/^Active slot:/ {print $3}')"
+case "$ACTIVE" in
+  blue) TARGET=green ;;
+  green) TARGET=blue ;;
+  *) printf "Error: cannot determine active slot\n" >&2; exit 1 ;;
+esac
+EXPECTED_BEFORE="$(slot_version "$ACTIVE")"
+EXPECTED_AFTER="$(slot_version "$TARGET")"
+VER_BEFORE="$(curl --fail --silent --show-error "http://localhost:${PORT}/version" | jq -er '.version | select(type == "string" and length > 0)')"
 printf "Version before switch: %s\n" "$VER_BEFORE"
-
-# 4. Determine target (opposite of current)
-ACTIVE="$("$SWITCH_SH" status 2>&1 | grep -q "blue" && echo "blue" || echo "green")"
-# More robust: read .active-slot directly
-if [ -f "$SCRIPT_DIR/.active-slot" ]; then
-  ACTIVE="$(tr -d ' \t\r\n' < "$SCRIPT_DIR/.active-slot" 2>/dev/null || echo "blue")"
-else
-  ACTIVE="blue"
+if [ "$VER_BEFORE" != "$EXPECTED_BEFORE" ]; then
+  printf "Error: initial version does not match %s (%s)\n" "$ACTIVE" "$EXPECTED_BEFORE" >&2
+  exit 1
 fi
-if [ "$ACTIVE" = "blue" ]; then TARGET="green"; else TARGET="blue"; fi
 
+# Restore the original routing even if verification fails after the switch.
+trap '"$SWITCH_SH" switch "$ACTIVE" >&2 || true' EXIT
 printf "\n3) Switching to %s...\n" "$TARGET"
 "$SWITCH_SH" switch "$TARGET"
-
-# 5. Verify version changed (if tags are different; if both default to 0.1.0, version may be same — still a valid switch)
 sleep 2
-VER_AFTER="$(curl --fail --silent --show-error "http://localhost:${PORT}/version" | jq -r .version)"
+VER_AFTER="$(curl --fail --silent --show-error "http://localhost:${PORT}/version" | jq -er '.version | select(type == "string" and length > 0)')"
 printf "Version after switch: %s\n" "$VER_AFTER"
-if [ "$VER_BEFORE" != "$VER_AFTER" ]; then
-  printf "${GREEN}Version changed: %s -> %s${RESET}\n" "$VER_BEFORE" "$VER_AFTER"
-else
-  printf "Note: version unchanged (%s) — both slots may be on same tag. Switch still succeeded (proxy now points to %s).\n" "$VER_AFTER" "$TARGET"
+if [ "$VER_AFTER" != "$EXPECTED_AFTER" ]; then
+  printf "Error: switched version does not match %s (%s)\n" "$TARGET" "$EXPECTED_AFTER" >&2
+  exit 1
 fi
+printf "${GREEN}Target version verified: %s${RESET}\n" "$VER_AFTER"
 
-# 6. Switch back (verify rollback = switch back)
+# 4. Switch back and verify the original version.
 printf "\n4) Switching back to %s (rollback)...\n" "$ACTIVE"
 "$SWITCH_SH" switch "$ACTIVE"
+trap - EXIT
 sleep 2
-VER_BACK="$(curl --fail --silent --show-error "http://localhost:${PORT}/version" | jq -r .version)"
+VER_BACK="$(curl --fail --silent --show-error "http://localhost:${PORT}/version" | jq -er '.version | select(type == "string" and length > 0)')"
 printf "Version after rollback: %s\n" "$VER_BACK"
-if [ "$VER_BACK" = "$VER_BEFORE" ]; then
-  printf "${BLUE}Rollback verified: %s${RESET}\n" "$VER_BACK"
+if [ "$VER_BACK" != "$VER_BEFORE" ]; then
+  printf "Error: rollback version does not match %s\n" "$VER_BEFORE" >&2
+  exit 1
 fi
+printf "${BLUE}Rollback verified: %s${RESET}\n" "$VER_BACK"
 
 printf "\n=== Demo check passed ===\n"
 printf "The cutover is observable via curl http://localhost:%s/version before/after switch.\n" "$PORT"
