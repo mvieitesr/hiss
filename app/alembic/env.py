@@ -12,14 +12,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Ensure repo root and app/ are on sys.path so `import app.app.models` works.
-# env.py is at app/alembic/env.py -> two levels up is repo root.
+# The outer app package must take precedence even when the repo root is
+# already on PYTHONPATH and app/ was prepended by Alembic.
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-# repo_root must come before app_dir so `import app.app` resolves to outer `app` + inner `app`
-for p in (app_dir, repo_root):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+sys.path.insert(0, repo_root)
 
 # Import models' metadata — target for autogenerate and migrations.
 from app.app.extensions import db  # noqa: E402

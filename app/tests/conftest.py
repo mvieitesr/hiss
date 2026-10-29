@@ -1,5 +1,7 @@
 import os
 import subprocess
+from pathlib import Path
+
 import pytest
 from sqlalchemy import text
 
@@ -20,7 +22,8 @@ def _alembic_upgrade():
         url = f"{url}{sep}options=-c%20lock_timeout%3D5000%20-c%20statement_timeout%3D30000"
         env["DATABASE_URL"] = url
         os.environ["DATABASE_URL"] = url
-    subprocess.run(["alembic", "-c", "app/alembic.ini", "upgrade", "head"], env=env, check=True)
+    config = Path(__file__).resolve().parents[1] / "alembic.ini"
+    subprocess.run(["alembic", "-c", str(config), "upgrade", "head"], env=env, check=True)
     yield
 
 
