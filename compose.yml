@@ -22,7 +22,7 @@ services:
       start_period: 5s
 
   app:
-    image: ${IMAGE}:${IMAGE_TAG}
+    image: ${IMAGE}:${IMAGE_TAG:?must be set}
     build:
       context: app
       dockerfile: Dockerfile
@@ -33,7 +33,7 @@ services:
       - "${APP_PORT:-8001}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}
-      APP_VERSION: ${APP_VERSION:-dev}
+      APP_VERSION: ${APP_VERSION:?must be set}
       FEATURE_LABEL_FILTERING: ${FEATURE_LABEL_FILTERING:-true}
       POSTGRES_DB: ${POSTGRES_DB:-hiss}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
