@@ -23,7 +23,9 @@ const state = {
   editingDescription: false,
   editingCommentId: null,
   appVersion: '...',
-  issueRequestId: 0
+  issueRequestId: 0,
+  navigationEpoch: 0,
+  navigationHash: ''
 };
 
 // --- Small inline icon set -------------------------------------------------
@@ -238,34 +240,60 @@ function parseHash() {
   return { view: 'projects' };
 }
 
+function isCurrentNavigation(epoch) {
+  return epoch === state.navigationEpoch && window.location.hash === state.navigationHash;
+}
+
+function isCurrentIssue(issueId, epoch) {
+  const route = parseHash();
+  return isCurrentNavigation(epoch) && route.view === 'issue_detail' && route.id === issueId;
+}
+
+function isCurrentProject(projectKey, epoch) {
+  const route = parseHash();
+  return isCurrentNavigation(epoch) && route.view === 'project_issues' && route.key === projectKey;
+}
+
 async function handleHashChange() {
+  const epoch = ++state.navigationEpoch;
+  state.navigationHash = window.location.hash;
   clearAlerts();
   state.editingTitle = false;
   state.editingDescription = false;
   state.editingCommentId = null;
+  const main = document.getElementById('mainContainer');
+  if (main) main.innerHTML = '<div class="loading-state" aria-label="Loading">Loading…</div>';
   const route = parseHash();
   if (route.view === 'projects') {
-    await loadProjectsView();
+    await loadProjectsView(epoch);
   } else if (route.view === 'project_issues') {
-    await loadProjectIssuesView(route.key);
+    await loadProjectIssuesView(route.key, epoch);
   } else if (route.view === 'issue_detail') {
-    await loadIssueDetailView(route.id);
+    await loadIssueDetailView(route.id, epoch);
   }
 }
 
 // --- Projects view ---------------------------------------------------------
 
-async function loadProjectsView() {
+async function loadProjectsView(epoch = state.navigationEpoch) {
+  if (!isCurrentNavigation(epoch) || parseHash().view !== 'projects') return;
   state.currentProject = null;
   state.currentIssue = null;
   try {
     const projects = await apiRequest(`${API_BASE}/projects`);
+    if (!isCurrentNavigation(epoch)) return;
     state.projects = projects || [];
     renderProjectsList(state.projects);
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || 'Failed to load projects');
-    renderErrorState('Could not load projects', 'Check the API connection and try again.', '<a class="btn btn-sm btn-primary" href="#/projects">Try again</a>');
+    renderErrorState('Could not load projects', 'Check the API connection and try again.', '<button type="button" class="btn btn-sm btn-primary" onclick="app.retryProjects()">Try again</button>');
   }
+}
+
+function retryProjects() {
+  clearAlerts();
+  return loadProjectsView();
 }
 
 function renderProjectsList(projects) {
@@ -308,7 +336,7 @@ function renderProjectsList(projects) {
           </div>
           <div class="project-list-meta">
             <span class="project-open-badge">${openCount} ${issueLabel}</span>
-            <button type="button" class="btn-row-action" title="Delete project" aria-label="Delete project ${escapeHtml(project.key)}" onclick="app.handleDeleteProject('${escapeHtml(project.key)}', event)">
+            <button type="button" class="btn-row-action" title="Delete project" aria-label="Delete project ${escapeHtml(project.key)}" data-project-key="${escapeHtml(project.key)}" onclick="app.handleDeleteProject(this.dataset.projectKey, event)">
               ${icon('trash', 'icon icon-xs')}
             </button>
           </div>
@@ -323,9 +351,12 @@ function renderProjectsList(projects) {
 
 // --- Project issues view ---------------------------------------------------
 
-async function loadProjectIssuesView(projectKey) {
+async function loadProjectIssuesView(projectKey, epoch = state.navigationEpoch) {
+  if (!isCurrentProject(projectKey, epoch)) return;
+  if (!state.currentProject || state.currentProject.key !== projectKey) state.currentProjectIssues = [];
   try {
     const projects = await apiRequest(`${API_BASE}/projects`);
+    if (!isCurrentNavigation(epoch)) return;
     state.projects = projects || [];
     const project = state.projects.find(item => item.key === projectKey);
     if (!project) {
@@ -343,20 +374,24 @@ async function loadProjectIssuesView(projectKey) {
     // Labels are used to populate the compact label filter. A label request
     // failure should not prevent the issue table from rendering.
     try {
-      state.allLabels = await apiRequest(`${API_BASE}/labels`) || [];
+      const labels = await apiRequest(`${API_BASE}/labels`);
+      if (!isCurrentNavigation(epoch)) return;
+      state.allLabels = labels || [];
     } catch (labelError) {
+      if (!isCurrentNavigation(epoch)) return;
       state.allLabels = state.allLabels || [];
     }
 
-    await fetchAndRenderIssues();
+    await fetchAndRenderIssues(epoch);
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || `Failed to load project '${projectKey}'`);
     renderErrorState('Could not load this project', 'Check the API connection and try again.', '<a class="btn btn-sm btn-light border" href="#/projects">Back to projects</a>');
   }
 }
 
-async function fetchAndRenderIssues() {
-  if (!state.currentProject) return;
+async function fetchAndRenderIssues(epoch = state.navigationEpoch) {
+  if (!state.currentProject || !isCurrentProject(state.currentProject.key, epoch)) return;
   const projectKey = state.currentProject.key;
   const requestId = ++state.issueRequestId;
   const params = new URLSearchParams();
@@ -367,17 +402,23 @@ async function fetchAndRenderIssues() {
 
   try {
     const issues = await apiRequest(`${API_BASE}/projects/${encodeURIComponent(projectKey)}/issues${query}`);
-    if (requestId !== state.issueRequestId) return;
+    if (!isCurrentNavigation(epoch) || requestId !== state.issueRequestId) return;
     state.currentProjectIssues = issues || [];
     renderProjectIssuesView();
   } catch (error) {
-    if (requestId !== state.issueRequestId) return;
-    if (error.data && error.data.error === 'feature_disabled') {
+    if (!isCurrentNavigation(epoch) || requestId !== state.issueRequestId) return;
+    if (error.data && error.data.error === 'feature_disabled' && state.filters.label) {
+      state.filters.label = '';
+      state.currentProjectIssues = [];
       showAlert(error.message || 'Label filtering is not available in this environment.', 'warning');
-    } else {
-      showAlert(error.message || 'Failed to fetch issues');
+      const main = document.getElementById('mainContainer');
+      if (main) main.innerHTML = '<div class="loading-state" aria-label="Loading">Loading…</div>';
+      await fetchAndRenderIssues(epoch);
+      return;
     }
-    renderProjectIssuesView();
+    state.currentProjectIssues = [];
+    showAlert(error.message || 'Failed to fetch issues');
+    renderErrorState('Could not load issues', 'Check the API connection and try again.', '<a class="btn btn-sm btn-light border" href="#/projects">Back to projects</a>');
   }
 }
 
@@ -575,33 +616,41 @@ function renderIssueRow(issue) {
 
 // --- Issue detail view -----------------------------------------------------
 
-async function loadIssueDetailView(issueId) {
+async function loadIssueDetailView(issueId, epoch = state.navigationEpoch) {
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const issue = await apiRequest(`${API_BASE}/issues/${issueId}`);
-    state.currentIssue = issue;
+    if (!isCurrentNavigation(epoch)) return;
 
     const [comments, labels] = await Promise.all([
       apiRequest(`${API_BASE}/issues/${issueId}/comments`),
       apiRequest(`${API_BASE}/labels`)
     ]);
-    state.currentComments = comments || [];
-    state.allLabels = labels || [];
+    if (!isCurrentNavigation(epoch)) return;
 
-    let matchingProject = (state.projects || []).find(project => project.id === issue.project_id);
+    let projects = state.projects || [];
+    let matchingProject = projects.find(project => project.id === issue.project_id);
     if (!matchingProject) {
       try {
-        state.projects = await apiRequest(`${API_BASE}/projects`) || [];
-        matchingProject = state.projects.find(project => project.id === issue.project_id);
+        projects = await apiRequest(`${API_BASE}/projects`) || [];
+        if (!isCurrentNavigation(epoch)) return;
+        matchingProject = projects.find(project => project.id === issue.project_id);
       } catch (projectError) {
+        if (!isCurrentNavigation(epoch)) return;
         matchingProject = null;
       }
     }
+    state.currentIssue = issue;
+    state.currentComments = comments || [];
+    state.allLabels = labels || [];
+    state.projects = projects;
     state.currentProject = matchingProject || null;
     state.editingTitle = false;
     state.editingDescription = false;
     state.editingCommentId = null;
     renderIssueDetailView();
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || `Failed to load issue #${issueId}`);
     renderErrorState('Could not load this issue', 'The issue may have been removed or the API is unavailable.', '<a class="btn btn-sm btn-light border" href="#/projects">Back to projects</a>');
   }
@@ -642,7 +691,7 @@ function renderIssueDetailView() {
   if (state.editingTitle) {
     content += `
       <form class="detail-title-edit-form" onsubmit="app.handleSaveTitle(event, ${escapeHtml(issue.id)})">
-        <input type="text" class="form-control form-control-app detail-title-input" id="editTitleInput" value="${escapeHtml(issue.title)}" required autofocus>
+        <input type="text" class="form-control form-control-app detail-title-input" id="editTitleInput" value="${escapeHtml(issue.title)}" maxlength="300" required autofocus>
         <button type="submit" class="btn btn-sm btn-primary">Save</button>
         <button type="button" class="btn btn-sm btn-light border" onclick="app.cancelEditTitle()">Cancel</button>
       </form>
@@ -858,8 +907,10 @@ async function handleCreateProject(event) {
 
   const key = keyInput.value.trim().toUpperCase();
   const name = nameInput.value.trim();
+  const epoch = state.navigationEpoch;
   try {
     await apiRequest(`${API_BASE}/projects`, { method: 'POST', body: { key, name } });
+    if (!isCurrentNavigation(epoch)) return;
     const modal = bootstrap.Modal.getInstance(document.getElementById('createProjectModal'));
     if (modal) modal.hide();
     keyInput.value = '';
@@ -867,6 +918,7 @@ async function handleCreateProject(event) {
     showAlert(`Project '${key}' created successfully.`, 'success');
     window.location.hash = `#/projects/${encodeURIComponent(key)}`;
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || 'Failed to create project');
   }
 }
@@ -879,11 +931,14 @@ async function handleDeleteProject(projectKey, event) {
   const confirmed = window.confirm(`Are you sure you want to delete project '${projectKey}' and all of its issues?`);
   if (!confirmed) return;
 
+  const epoch = state.navigationEpoch;
   try {
     await apiRequest(`${API_BASE}/projects/${encodeURIComponent(projectKey)}`, { method: 'DELETE' });
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(`Project '${projectKey}' deleted.`, 'success');
-    await loadProjectsView();
+    await loadProjectsView(epoch);
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || `Failed to delete project '${projectKey}'`);
   }
 }
@@ -896,6 +951,7 @@ async function handleCreateIssue(event) {
   const prioritySelect = document.getElementById('issuePrioritySelect');
   if (!titleInput || !descriptionInput || !prioritySelect) return;
 
+  const epoch = state.navigationEpoch;
   try {
     const newIssue = await apiRequest(`${API_BASE}/projects/${encodeURIComponent(state.currentProject.key)}/issues`, {
       method: 'POST',
@@ -905,6 +961,7 @@ async function handleCreateIssue(event) {
         priority: prioritySelect.value
       }
     });
+    if (!isCurrentNavigation(epoch)) return;
     const modal = bootstrap.Modal.getInstance(document.getElementById('createIssueModal'));
     if (modal) modal.hide();
     titleInput.value = '';
@@ -913,6 +970,7 @@ async function handleCreateIssue(event) {
     showAlert(`Issue #${newIssue.id} created.`, 'success');
     window.location.hash = `#/issues/${newIssue.id}`;
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || 'Failed to create issue');
   }
 }
@@ -922,8 +980,11 @@ async function handleDeleteIssue(issueId) {
   if (!confirmed) return;
 
   const projectKey = state.currentProject ? state.currentProject.key : null;
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     await apiRequest(`${API_BASE}/issues/${issueId}`, { method: 'DELETE' });
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(`Issue #${issueId} deleted.`, 'success');
     if (projectKey) {
       window.location.hash = `#/projects/${encodeURIComponent(projectKey)}`;
@@ -931,6 +992,7 @@ async function handleDeleteIssue(issueId) {
       window.location.hash = '#/projects';
     }
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || `Failed to delete issue #${issueId}`);
   }
 }
@@ -960,13 +1022,17 @@ async function handleSaveTitle(event, issueId) {
     return;
   }
 
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const updated = await apiRequest(`${API_BASE}/issues/${issueId}`, { method: 'PATCH', body: { title } });
+    if (!isCurrentIssue(issueId, epoch)) return;
     state.currentIssue = updated;
     state.editingTitle = false;
     renderIssueDetailView();
     showAlert('Title updated.', 'success');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to update title');
   }
 }
@@ -991,13 +1057,17 @@ async function handleSaveDescription(event, issueId) {
   if (!input) return;
   const description = input.value;
 
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const updated = await apiRequest(`${API_BASE}/issues/${issueId}`, { method: 'PATCH', body: { description } });
+    if (!isCurrentIssue(issueId, epoch)) return;
     state.currentIssue = updated;
     state.editingDescription = false;
     renderIssueDetailView();
     showAlert('Description updated.', 'success');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to update description');
   }
 }
@@ -1026,13 +1096,17 @@ async function handleSaveComment(event, commentId, issueId) {
     return;
   }
 
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const updatedComment = await apiRequest(`${API_BASE}/comments/${commentId}`, { method: 'PATCH', body: { body } });
+    if (!isCurrentIssue(issueId, epoch)) return;
     state.currentComments = (state.currentComments || []).map(c => c.id === commentId ? updatedComment : c);
     state.editingCommentId = null;
     renderIssueDetailView();
     showAlert('Comment updated.', 'success');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to update comment');
   }
 }
@@ -1041,37 +1115,49 @@ async function handleDeleteComment(commentId, issueId) {
   const confirmed = window.confirm(`Are you sure you want to delete comment #${commentId}?`);
   if (!confirmed) return;
 
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     await apiRequest(`${API_BASE}/comments/${commentId}`, { method: 'DELETE' });
+    if (!isCurrentIssue(issueId, epoch)) return;
     state.currentComments = (state.currentComments || []).filter(c => c.id !== commentId);
     renderIssueDetailView();
     showAlert('Comment deleted.', 'success');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to delete comment');
   }
 }
 
 async function handleUpdateStatus(issueId, newStatus) {
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const updated = await apiRequest(`${API_BASE}/issues/${issueId}`, { method: 'PATCH', body: { status: newStatus } });
+    if (!isCurrentIssue(issueId, epoch)) return;
     state.currentIssue = updated;
     renderIssueDetailView();
     showAlert(`Status updated to '${formatStatus(newStatus)}'.`, 'info');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to update status');
-    await loadIssueDetailView(issueId);
+    await loadIssueDetailView(issueId, epoch);
   }
 }
 
 async function handleUpdatePriority(issueId, newPriority) {
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const updated = await apiRequest(`${API_BASE}/issues/${issueId}`, { method: 'PATCH', body: { priority: newPriority } });
+    if (!isCurrentIssue(issueId, epoch)) return;
     state.currentIssue = updated;
     renderIssueDetailView();
     showAlert(`Priority updated to '${formatPriority(newPriority)}'.`, 'info');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to update priority');
-    await loadIssueDetailView(issueId);
+    await loadIssueDetailView(issueId, epoch);
   }
 }
 
@@ -1082,12 +1168,16 @@ async function handleAddComment(event, issueId) {
   const body = input.value.trim();
   if (!body) return;
 
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const newComment = await apiRequest(`${API_BASE}/issues/${issueId}/comments`, { method: 'POST', body: { body } });
+    if (!isCurrentIssue(issueId, epoch)) return;
     state.currentComments = [...(state.currentComments || []), newComment];
     renderIssueDetailView();
     showAlert('Comment added.', 'success');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to add comment');
   }
 }
@@ -1096,14 +1186,18 @@ async function handleAttachSelectedLabel(issueId) {
   const select = document.getElementById('attachLabelSelect');
   if (!select || !select.value) return;
   const labelName = select.value;
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const attached = await apiRequest(`${API_BASE}/issues/${issueId}/labels/${encodeURIComponent(labelName)}`, { method: 'POST' });
+    if (!isCurrentIssue(issueId, epoch)) return;
     if (state.currentIssue) {
       state.currentIssue.labels = attached.labels || [];
     }
     renderIssueDetailView();
     showAlert(`Label '${labelName}' attached.`, 'success');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to attach label');
   }
 }
@@ -1113,14 +1207,18 @@ async function handleDetachLabel(issueId, labelName, event) {
     event.preventDefault();
     event.stopPropagation();
   }
+  const epoch = state.navigationEpoch;
+  if (!isCurrentIssue(issueId, epoch)) return;
   try {
     const remaining = await apiRequest(`${API_BASE}/issues/${issueId}/labels/${encodeURIComponent(labelName)}`, { method: 'DELETE' });
+    if (!isCurrentIssue(issueId, epoch)) return;
     if (state.currentIssue) {
       state.currentIssue.labels = remaining.labels || [];
     }
     renderIssueDetailView();
     showAlert(`Label '${labelName}' removed.`, 'info');
   } catch (error) {
+    if (!isCurrentIssue(issueId, epoch)) return;
     showAlert(error.message || 'Failed to remove label');
   }
 }
@@ -1132,17 +1230,21 @@ async function handleCreateLabel(event) {
   const name = input.value.trim();
   if (!name) return;
 
+  const epoch = state.navigationEpoch;
   try {
     await apiRequest(`${API_BASE}/labels`, { method: 'POST', body: { name } });
+    if (!isCurrentNavigation(epoch)) return;
     input.value = '';
     showAlert(`Label '${name}' created.`, 'success');
-    await refreshManageLabelsModal();
+    await refreshManageLabelsModal(epoch);
+    if (!isCurrentNavigation(epoch)) return;
     if (state.currentIssue) {
-      await loadIssueDetailView(state.currentIssue.id);
+      await loadIssueDetailView(state.currentIssue.id, epoch);
     } else if (state.currentProject) {
-      await fetchAndRenderIssues();
+      await fetchAndRenderIssues(epoch);
     }
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || 'Failed to create label');
   }
 }
@@ -1155,23 +1257,28 @@ async function handleDeleteCatalogLabel(labelName, event) {
   const confirmed = window.confirm(`Are you sure you want to delete label '${labelName}'? It will be removed from all issues.`);
   if (!confirmed) return;
 
+  const epoch = state.navigationEpoch;
   try {
     await apiRequest(`${API_BASE}/labels/${encodeURIComponent(labelName)}`, { method: 'DELETE' });
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(`Label '${labelName}' deleted.`, 'info');
-    await refreshManageLabelsModal();
+    await refreshManageLabelsModal(epoch);
+    if (!isCurrentNavigation(epoch)) return;
     if (state.currentIssue) {
-      await loadIssueDetailView(state.currentIssue.id);
+      await loadIssueDetailView(state.currentIssue.id, epoch);
     } else if (state.currentProject) {
-      await fetchAndRenderIssues();
+      await fetchAndRenderIssues(epoch);
     }
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || `Failed to delete label '${labelName}'`);
   }
 }
 
-async function refreshManageLabelsModal() {
+async function refreshManageLabelsModal(epoch = state.navigationEpoch) {
   try {
     const labels = await apiRequest(`${API_BASE}/labels`);
+    if (!isCurrentNavigation(epoch)) return;
     state.allLabels = labels || [];
     const container = document.getElementById('labelsListContainer');
     if (!container) return;
@@ -1179,6 +1286,7 @@ async function refreshManageLabelsModal() {
       ? state.allLabels.map(label => renderLabelBadge(label, true, null, true)).join('')
       : '<span class="empty-inline">No labels created yet.</span>';
   } catch (error) {
+    if (!isCurrentNavigation(epoch)) return;
     const container = document.getElementById('labelsListContainer');
     if (container) container.innerHTML = '<span class="empty-inline">Labels could not be loaded.</span>';
   }
@@ -1223,7 +1331,9 @@ function openCreateIssueModal(projectKey) {
 
 async function openManageLabelsModal(event) {
   if (event) event.preventDefault();
-  await refreshManageLabelsModal();
+  const epoch = state.navigationEpoch;
+  await refreshManageLabelsModal(epoch);
+  if (!isCurrentNavigation(epoch)) return;
   const element = document.getElementById('manageLabelsModal');
   if (element) bootstrap.Modal.getOrCreateInstance(element).show();
 }
@@ -1261,6 +1371,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.app = {
   navigateHome,
+  retryProjects,
   openCreateProjectModal,
   openCreateIssueModal,
   openManageLabelsModal,

@@ -82,12 +82,12 @@
           <div class="modal-body">
             <div class="mb-3">
               <label for="projectKeyInput" class="form-label">Project key</label>
-              <input type="text" class="form-control form-control-app text-uppercase" id="projectKeyInput" placeholder="e.g. ENG, HISS, INFRA" autocomplete="off" required>
+              <input type="text" class="form-control form-control-app text-uppercase" id="projectKeyInput" placeholder="e.g. ENG, HISS, INFRA" autocomplete="off" maxlength="50" required>
               <div class="form-text">A short, unique identifier for issue references.</div>
             </div>
             <div class="mb-1">
               <label for="projectNameInput" class="form-label">Project name</label>
-              <input type="text" class="form-control form-control-app" id="projectNameInput" placeholder="e.g. Engineering Core" autocomplete="off" required>
+              <input type="text" class="form-control form-control-app" id="projectNameInput" placeholder="e.g. Engineering Core" autocomplete="off" maxlength="200" required>
             </div>
           </div>
           <div class="modal-footer">
@@ -114,7 +114,7 @@
           <div class="modal-body">
             <div class="mb-3">
               <label for="issueTitleInput" class="form-label">Title</label>
-              <input type="text" class="form-control form-control-app" id="issueTitleInput" placeholder="What needs to be done?" autocomplete="off" required>
+              <input type="text" class="form-control form-control-app" id="issueTitleInput" placeholder="What needs to be done?" autocomplete="off" maxlength="300" required>
             </div>
             <div class="mb-3">
               <label for="issueDescriptionInput" class="form-label">Description <span class="optional-label">Optional</span></label>
@@ -152,7 +152,7 @@
         <div class="modal-body">
           <form id="createLabelForm" class="label-create-form" onsubmit="app.handleCreateLabel(event)">
             <label for="newLabelNameInput" class="visually-hidden">New label name</label>
-            <input type="text" class="form-control form-control-app" id="newLabelNameInput" placeholder="Add a label, e.g. bug or frontend" autocomplete="off" required>
+            <input type="text" class="form-control form-control-app" id="newLabelNameInput" placeholder="Add a label, e.g. bug or frontend" autocomplete="off" maxlength="100" required>
             <button type="submit" class="btn btn-sm btn-primary text-nowrap">Add label</button>
           </form>
           <div class="section-kicker mt-4 mb-2">Existing labels</div>
