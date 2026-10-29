@@ -3,6 +3,7 @@
 import json
 
 import httpx
+import pytest
 from typer.testing import CliRunner
 
 from hiss.main import app
@@ -60,6 +61,35 @@ def test_error_409_mapping(monkeypatch):
     result = runner.invoke(app, ["projects", "create", "--key", "OPS", "--name", "Operations"])
     assert result.exit_code == 1
     assert "already exists" in result.output
+
+
+@pytest.mark.parametrize("json_option", [[], ["--json"]])
+def test_successful_html_response_is_protocol_error(monkeypatch, json_option):
+    def handler(request: httpx.Request):
+        return httpx.Response(
+            200, text="<html>SPA</html>", headers={"Content-Type": "text/html"}, request=request
+        )
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(
+        app, ["--url", "http://localhost:8000/wrong-prefix", "projects", "list", *json_option]
+    )
+    assert result.exit_code == 1
+    assert "non-JSON" in result.stderr
+    assert "base URL" in result.stderr
+    assert "No Projects found" not in result.stdout
+
+
+@pytest.mark.parametrize("status", [200, 204])
+def test_empty_success_response_is_allowed(monkeypatch, status):
+    def handler(request: httpx.Request):
+        return httpx.Response(status, content=b"", request=request)
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, ["projects", "list"])
+    assert result.exit_code == 0
+    assert "No Projects found" in result.stdout
+    assert result.stderr == ""
 
 
 def test_connection_error(monkeypatch):

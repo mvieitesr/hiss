@@ -113,6 +113,19 @@ def test_labels_delete_happy(monkeypatch):
     assert "Deleted Label bug" in result.output
 
 
+def test_labels_delete_encodes_name(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request):
+        captured["url"] = str(request.url)
+        return httpx.Response(204, request=request)
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, ["labels", "delete", "bug#other"])
+    assert result.exit_code == 0
+    assert captured["url"] == "http://localhost:8000/api/v1/labels/bug%23other"
+
+
 def test_labels_delete_404(monkeypatch):
     def handler(request: httpx.Request):
         return httpx.Response(

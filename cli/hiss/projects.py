@@ -67,7 +67,7 @@ def delete_project(
     base_url = hiss.client.get_base_url_for_ctx(ctx)
     try:
         with hiss.client.get_client(ctx) as client:
-            resp = client.delete(f"/api/v1/projects/{key}")
+            resp = client.delete(f"/api/v1/projects/{hiss.client.path_segment(key)}")
     except httpx.RequestError as exc:
         hiss.client.handle_request_error(exc, base_url)
     data = hiss.client.handle_response(resp)

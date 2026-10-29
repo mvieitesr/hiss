@@ -3,6 +3,7 @@
 import json
 
 import httpx
+import pytest
 from typer.testing import CliRunner
 
 from hiss.main import app
@@ -22,6 +23,49 @@ def _mock(monkeypatch, handler):
     monkeypatch.setattr(hiss.client, "get_client", fake)
 
 
+@pytest.mark.parametrize(
+    ("args", "method", "expected_url", "response"),
+    [
+        (
+            ["issues", "list", "--project", "A?B/ñ", "--label", "x?y", "--json"],
+            "GET",
+            "http://localhost:8000/api/v1/projects/A%3FB%2F%C3%B1/issues?label=x%3Fy",
+            [],
+        ),
+        (
+            ["issues", "create", "--project", "A?B/ñ", "--title", "T", "--json"],
+            "POST",
+            "http://localhost:8000/api/v1/projects/A%3FB%2F%C3%B1/issues",
+            {"id": 1},
+        ),
+        (
+            ["issues", "label", "42", "bug#other/%", "--json"],
+            "POST",
+            "http://localhost:8000/api/v1/issues/42/labels/bug%23other%2F%25",
+            {"id": 42, "labels": []},
+        ),
+        (
+            ["issues", "unlabel", "42", "bug#other/%", "--json"],
+            "DELETE",
+            "http://localhost:8000/api/v1/issues/42/labels/bug%23other%2F%25",
+            {"id": 42, "labels": []},
+        ),
+    ],
+)
+def test_issues_encodes_dynamic_path_segments(monkeypatch, args, method, expected_url, response):
+    captured = {}
+
+    def handler(request: httpx.Request):
+        captured["url"] = str(request.url)
+        captured["method"] = request.method
+        return httpx.Response(200, json=response, request=request)
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0
+    assert captured == {"url": expected_url, "method": method}
+
+
 def test_issues_list_basic(monkeypatch):
     def handler(request: httpx.Request):
         assert request.method == "GET"
@@ -38,6 +82,42 @@ def test_issues_list_basic(monkeypatch):
     assert result.exit_code == 0
     assert "T" in result.output
     assert "open" in result.output
+
+
+def test_issues_list_renders_title_as_literal_text(monkeypatch):
+    def handler(request: httpx.Request):
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 1,
+                    "title": "Text [/no-such-tag]",
+                    "status": "open",
+                    "priority": "medium",
+                    "labels": [],
+                }
+            ],
+            request=request,
+        )
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, ["issues", "list", "--project", "AUD"])
+    assert result.exit_code == 0
+    assert "Text [/no-such-tag]" in result.stdout
+
+
+def test_issues_list_renders_project_in_table_title_as_literal_text(monkeypatch):
+    def handler(request: httpx.Request):
+        return httpx.Response(
+            200,
+            json=[{"id": 1, "title": "T", "status": "open", "priority": "medium", "labels": []}],
+            request=request,
+        )
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, ["issues", "list", "--project", "[/no-such-tag]"])
+    assert result.exit_code == 0
+    assert "Issues in [/no-such-tag]" in result.stdout
 
 
 def test_issues_list_with_filters(monkeypatch):

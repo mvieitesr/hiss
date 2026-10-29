@@ -137,6 +137,19 @@ def test_projects_delete_happy(monkeypatch):
     assert "Deleted Project OPS" in result.output
 
 
+def test_projects_delete_encodes_key(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request):
+        captured["url"] = str(request.url)
+        return httpx.Response(204, request=request)
+
+    _mock(monkeypatch, handler)
+    result = runner.invoke(app, ["projects", "delete", "KEEP?other"])
+    assert result.exit_code == 0
+    assert captured["url"] == "http://localhost:8000/api/v1/projects/KEEP%3Fother"
+
+
 def test_projects_delete_404(monkeypatch):
     def handler(request: httpx.Request):
         return httpx.Response(

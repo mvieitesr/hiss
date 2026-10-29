@@ -7,12 +7,18 @@ Zero domain logic: no validation, just HTTP + error mapping.
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 import httpx
 import typer
 
 DEFAULT_URL = "http://localhost:8000"
 API_PREFIX = "/api/v1"
+
+
+def path_segment(value: str | int) -> str:
+    """Encode a single dynamic URL path segment."""
+    return quote(str(value), safe="")
 
 
 def get_base_url(ctx_url: str | None) -> str:
@@ -60,13 +66,13 @@ def handle_response(resp: httpx.Response) -> any:
     On error print the API message verbatim to stderr.
     """
     if resp.is_success:
-        # 204 etc. has no body
-        if resp.status_code == 204:
+        if resp.status_code == 204 or not resp.content:
             return None
         try:
             return resp.json()
-        except Exception:
-            return None
+        except ValueError:
+            typer.echo("Error: non-JSON response from API; check the base URL.", err=True)
+            raise typer.Exit(code=1)
 
     # Error path — try to extract message verbatim
     msg: str
