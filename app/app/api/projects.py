@@ -39,7 +39,7 @@ def list_projects():
 @api_bp.route("/projects", methods=["POST"])
 def create_project():
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
     key = (data.get("key") or "").strip() if isinstance(data.get("key"), str) else data.get("key")
     name = (
@@ -51,6 +51,12 @@ def create_project():
         return bad_request("key is required")
     if not name or not isinstance(name, str):
         return bad_request("name is required")
+    if "/" in key or key in {".", ".."}:
+        return bad_request("key must be a routable path segment")
+    if len(key) > 50:
+        return bad_request("key must be at most 50 characters")
+    if len(name) > 200:
+        return bad_request("name must be at most 200 characters")
 
     # Check duplicate before insert for clean 409
     if Project.query.filter_by(key=key).first() is not None:

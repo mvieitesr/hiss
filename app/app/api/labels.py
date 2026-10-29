@@ -1,11 +1,12 @@
 from flask import request, jsonify
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from . import api_bp
 from .errors import bad_request, not_found, conflict
 from ..extensions import db
-from ..models import Label, Issue
+from ..models import Label, Issue, issue_labels
 
 
 def _label_to_dict(lb: Label) -> dict:
@@ -21,12 +22,16 @@ def list_labels():
 @api_bp.route("/labels", methods=["POST"])
 def create_label():
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
     name = data.get("name")
     if not name or not isinstance(name, str) or not name.strip():
         return bad_request("name is required")
     name = name.strip()
+    if "/" in name or name in {".", ".."}:
+        return bad_request("name must be a routable path segment")
+    if len(name) > 100:
+        return bad_request("name must be at most 100 characters")
 
     if Label.query.filter_by(name=name).first() is not None:
         return conflict(f"label '{name}' already exists")
@@ -53,21 +58,19 @@ def delete_label(name: str):
 
 @api_bp.route("/issues/<int:issue_id>/labels/<string:name>", methods=["POST"])
 def attach_label(issue_id: int, name: str):
-    issue = Issue.query.options(selectinload(Issue.labels)).filter_by(id=issue_id).first()
+    issue = Issue.query.filter_by(id=issue_id).first()
     if issue is None:
         return not_found(f"issue {issue_id} not found")
     label = Label.query.filter_by(name=name).first()
     if label is None:
         return not_found(f"label '{name}' not found")
 
-    # Idempotent: if already attached, return 200
-    if label in issue.labels:
-        return jsonify({"id": issue.id, "labels": [_label_to_dict(lb) for lb in issue.labels]}), 200
-
-    issue.labels.append(label)
+    db.session.execute(
+        insert(issue_labels)
+        .values(issue_id=issue.id, label_id=label.id)
+        .on_conflict_do_nothing(index_elements=["issue_id", "label_id"])
+    )
     db.session.commit()
-    # Reload
-    issue = Issue.query.options(selectinload(Issue.labels)).filter_by(id=issue_id).first()
     return jsonify({"id": issue.id, "labels": [_label_to_dict(lb) for lb in issue.labels]}), 200
 
 

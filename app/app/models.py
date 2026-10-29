@@ -70,7 +70,7 @@ class Issue(db.Model):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     status: Mapped[str] = mapped_column(
         SAEnum(IssueStatus, name="issue_status", native_enum=True, validate_strings=True),
         nullable=False,

@@ -74,12 +74,15 @@ def create_issue_for_project(key: str):
         return not_found(f"project '{key}' not found")
 
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
 
     title = data.get("title")
     if not title or not isinstance(title, str) or not title.strip():
         return bad_request("title is required")
+    title = title.strip()
+    if len(title) > 300:
+        return bad_request("title must be at most 300 characters")
 
     description = data.get("description", "")
     if description is None:
@@ -96,13 +99,13 @@ def create_issue_for_project(key: str):
     status_val = "open"
     if "status" in data:
         s = data.get("status")
-        if s not in VALID_STATUSES:
+        if not isinstance(s, str) or s not in VALID_STATUSES:
             return bad_request(f"invalid status '{s}'")
         status_val = s
 
     issue = Issue(
         project_id=project.id,
-        title=title.strip(),
+        title=title,
         description=description,
         status=status_val,
         priority=priority,
@@ -129,19 +132,19 @@ def update_issue(issue_id: int):
         return not_found(f"issue {issue_id} not found")
 
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
 
     # Validate enums before update
     if "status" in data:
         status_val = data["status"]
-        if status_val not in VALID_STATUSES:
+        if not isinstance(status_val, str) or status_val not in VALID_STATUSES:
             return bad_request(f"invalid status '{status_val}'")
         issue.status = status_val
 
     if "priority" in data:
         priority_val = data["priority"]
-        if priority_val not in VALID_PRIORITIES:
+        if not isinstance(priority_val, str) or priority_val not in VALID_PRIORITIES:
             return bad_request(f"invalid priority '{priority_val}'")
         issue.priority = priority_val
 
@@ -149,7 +152,10 @@ def update_issue(issue_id: int):
         title = data["title"]
         if not title or not isinstance(title, str) or not title.strip():
             return bad_request("title must be a non-empty string")
-        issue.title = title.strip()
+        title = title.strip()
+        if len(title) > 300:
+            return bad_request("title must be at most 300 characters")
+        issue.title = title
 
     if "description" in data:
         desc = data["description"]

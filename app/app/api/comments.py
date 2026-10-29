@@ -31,7 +31,7 @@ def create_comment(issue_id: int):
         return not_found(f"issue {issue_id} not found")
 
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
 
     body = data.get("body")
@@ -51,7 +51,7 @@ def update_comment(comment_id: int):
         return not_found(f"comment {comment_id} not found")
 
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
 
     body = data.get("body")
