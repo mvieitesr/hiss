@@ -158,6 +158,94 @@ def test_fork_publishes_to_lowercase_owner(tmp_path):
     assert "steps.image.outputs.image" in build["tags"]
 
 
+def test_dev_reuses_existing_commit_image_without_building(tmp_path):
+    script = step("_build-push.yml", "build", "Find existing commit image")["run"]
+    output = tmp_path / "output"
+    digest = "sha256:" + "a" * 64
+    functions = r"""
+        docker() {
+          case "$*" in
+            *"json .Image"*) printf '{"config":{"Labels":{"org.opencontainers.image.revision":"%s"}}}\n' "$COMMIT_SHA" ;;
+            *"imagetools inspect"*) printf '%s\n' "$MOCK_DIGEST" ;;
+            *) return 1 ;;
+          esac
+        }
+    """
+    result = run_script(
+        script,
+        env={
+            "IMAGE": "ghcr.io/student/hiss",
+            "TAG": "789749c4",
+            "COMMIT_SHA": "789749c4" + "0" * 32,
+            "GITHUB_OUTPUT": str(output),
+            "MOCK_DIGEST": digest,
+        },
+        functions=functions,
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"digest={digest}\n" in output.read_text()
+    build = step("_build-push.yml", "build", "Build and push image")
+    assert "steps.existing.outputs.digest" in build["if"]
+    assert (
+        "steps.existing.outputs.digest"
+        in step("_build-push.yml", "build", "Record published digest")["env"]["DIGEST"]
+    )
+
+
+def test_dev_fails_on_sha8_collision_or_missing_revision(tmp_path):
+    script = step("_build-push.yml", "build", "Find existing commit image")["run"]
+    functions = r"""
+        docker() {
+          case "$*" in
+            *"json .Image"*) printf '%s\n' "$MOCK_IMAGE" ;;
+            *"imagetools inspect"*) printf '%s\n' "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ;;
+          esac
+        }
+    """
+    for image in (
+        '{"config":{"Labels":{"org.opencontainers.image.revision":"wrong"}}}',
+        '{"config":{}}',
+    ):
+        output = tmp_path / "output"
+        result = run_script(
+            script,
+            env={
+                "IMAGE": "ghcr.io/student/hiss",
+                "TAG": "789749c4",
+                "COMMIT_SHA": "789749c4" + "0" * 32,
+                "GITHUB_OUTPUT": str(output),
+                "MOCK_IMAGE": image,
+            },
+            functions=functions,
+        )
+        assert result.returncode != 0
+        assert "revision" in result.stderr.lower()
+        assert not output.exists()
+
+
+def test_dev_builds_only_when_image_is_not_found(tmp_path):
+    script = step("_build-push.yml", "build", "Find existing commit image")["run"]
+    for error, succeeds in (
+        ("ghcr.io/student/hiss:789749c4: not found", True),
+        ("unauthorized", False),
+        ("network timeout", False),
+    ):
+        output = tmp_path / "output"
+        result = run_script(
+            script,
+            env={
+                "IMAGE": "ghcr.io/student/hiss",
+                "TAG": "789749c4",
+                "COMMIT_SHA": "789749c4" + "0" * 32,
+                "GITHUB_OUTPUT": str(output),
+                "MOCK_ERROR": error,
+            },
+            functions='docker() { echo "$MOCK_ERROR" >&2; return 1; }',
+        )
+        assert (result.returncode == 0) == succeeds, result.stderr
+        assert not output.exists()
+
+
 def test_release_promotes_published_digest_without_building(tmp_path):
     reusable = workflow("_build-push.yml")
     script = step("_build-push.yml", "build", "Promote existing image")["run"]
