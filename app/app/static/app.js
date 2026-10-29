@@ -41,26 +41,14 @@ const ICON_PATHS = {
   clock: '<circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" stroke-width="1.35"/><path d="M8 5v3.35l2.15 1.25" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>',
   check: '<path d="m3.4 8.1 2.8 2.8 6.4-6.2" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>',
   filter: '<path d="M2.75 3.5h10.5L9.2 7.85v3.4l-2.4 1.25V7.85L2.75 3.5Z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>',
-  tag: '<path d="M2.75 4.25V8l5.15 5.15a1.2 1.2 0 0 0 1.7 0l2.55-2.55a1.2 1.2 0 0 0 0-1.7L7 3.75H3.25a.5.5 0 0 0-.5.5Z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><circle cx="5.15" cy="6.05" r=".75" fill="currentColor"/>',
   calendar: '<rect x="2.75" y="3.5" width="10.5" height="9.25" rx="1.25" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M5.25 2.5v2M10.75 2.5v2M2.75 6h10.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>',
-  message: '<path d="M3 3.25h10v7.2a1.3 1.3 0 0 1-1.3 1.3H7l-2.7 1.9v-1.9H4.3A1.3 1.3 0 0 1 3 10.45v-7.2Z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>',
   project: '<path d="M2.75 4.25a1 1 0 0 1 1-1h3l1 1h4.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1v-7.5Z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>',
-  layers: '<path d="m8 2.5 5.5 2.85L8 8.2 2.5 5.35 8 2.5Z" fill="currentColor"/><path d="m2.5 8 5.5 2.85L13.5 8v2.35L8 13.2l-5.5-2.85V8Z" fill="currentColor" opacity=".62"/>',
   hash: '<path d="M5.25 2.75 4.5 13.25M10.75 2.75 10 13.25M2.75 6.2h10.5M2.25 9.8h10.5" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/>',
-  x: '<path d="m4.5 4.5 7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round"/>',
-  refresh: '<path d="M12.2 5.9A4.7 4.7 0 1 0 12.45 9" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/><path d="M12.25 3.7v2.65H9.6" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>',
   inbox: '<path d="M3 4.25h10l.75 7a1 1 0 0 1-1 1.1H3.25a1 1 0 0 1-1-1.1l.75-7Z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M2.25 8.5h2.6l.9 1.25h4.5l.9-1.25h2.6" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>',
   alert: '<path d="M8 2.5 13.25 12H2.75L8 2.5Z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M8 6v2.75M8 10.45v.1" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/>',
-  external: '<path d="M8.75 3.25h4v4M12.5 3.5 7.75 8.25" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.25 8.5v3a1.25 1.25 0 0 1-1.25 1.25h-5a1.25 1.25 0 0 1-1.25-1.25v-5a1.25 1.25 0 0 1 1.25-1.25h3" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>',
-  dots: '<circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/>',
-  info: '<circle cx="8" cy="8" r="5.3" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M8 7.1v3.35M8 5.25v.1" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>',
-  back: '<path d="M12.25 8H3.75M7.25 4.5 3.75 8l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>',
   search: '<circle cx="7" cy="7" r="3.7" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="m9.75 9.75 3 3" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>',
-  flame: '<path d="M8.45 13.25c2.25-.2 3.7-1.58 3.7-3.7 0-1.72-.98-3.05-2.35-4.2.12 1.3-.37 2.03-1.08 2.52.12-2.18-.9-3.7-2.2-5.12.08 2.35-2.65 3.18-2.65 6.15 0 2.43 1.87 4.25 4.58 4.35Z" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/>',
   trash: '<path d="M3.5 4.5h9M6.5 4.5V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5m1.5 0v8a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4.5 12.5v-8" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>',
-  edit: '<path d="m3 10.9-.45 2.55L5.1 13l7.1-7.1-2.1-2.1L3 10.9Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="m9.3 4.5 2.1 2.1" fill="none" stroke="currentColor" stroke-width="1.2"/>',
-  plusCircle: '<circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v6M5 8h6" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>',
-  checkCircle: '<circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="m5.25 8.1 1.75 1.75 3.75-3.7" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>'
+  edit: '<path d="m3 10.9-.45 2.55L5.1 13l7.1-7.1-2.1-2.1L3 10.9Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="m9.3 4.5 2.1 2.1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
 };
 
 function icon(name, className = 'icon', title = '') {
