@@ -86,7 +86,21 @@ slot_version() {
     jq -er '.version | select(type == "string" and length > 0)'
 }
 
-# 3. Check the current active slot and the expected version of each slot.
+# Inspect the running image rather than the current environment: deploy can
+# update one slot with a tag supplied only to that Compose invocation.
+slot_tag() {
+  local cid image name
+  cid="$(docker compose -f "$COMPOSE_FILE" ps -q "$1")"
+  image="$(docker inspect --format '{{.Config.Image}}' "$cid")"
+  image="${image%@*}"
+  name="${image##*/}"
+  case "$name" in
+    *:*) printf '%s\n' "${name##*:}" ;;
+    *) printf 'Error: cannot determine deployed tag for %s (%s)\n' "$1" "$image" >&2; return 1 ;;
+  esac
+}
+
+# 2. Check both slot versions against their deployed image tags.
 printf "\n2) Current state:\n"
 "$SWITCH_SH" status
 ACTIVE="$("$SWITCH_SH" status | awk '/^Active slot:/ {print $3}')"
@@ -95,8 +109,23 @@ case "$ACTIVE" in
   green) TARGET=blue ;;
   *) printf "Error: cannot determine active slot\n" >&2; exit 1 ;;
 esac
-EXPECTED_BEFORE="$(slot_version "$ACTIVE")"
-EXPECTED_AFTER="$(slot_version "$TARGET")"
+BLUE_TAG="$(slot_tag blue)"
+GREEN_TAG="$(slot_tag green)"
+for slot in blue green; do
+  case "$slot" in
+    blue) expected="$BLUE_TAG" ;;
+    green) expected="$GREEN_TAG" ;;
+  esac
+  version="$(slot_version "$slot")"
+  if [ "$version" != "$expected" ]; then
+    printf 'Error: %s version %s does not match deployed tag %s\n' "$slot" "$version" "$expected" >&2
+    exit 1
+  fi
+done
+case "$ACTIVE" in
+  blue) EXPECTED_BEFORE="$BLUE_TAG"; EXPECTED_AFTER="$GREEN_TAG" ;;
+  green) EXPECTED_BEFORE="$GREEN_TAG"; EXPECTED_AFTER="$BLUE_TAG" ;;
+esac
 VER_BEFORE="$(curl --fail --silent --show-error "http://localhost:${PORT}/version" | jq -er '.version | select(type == "string" and length > 0)')"
 printf "Version before switch: %s\n" "$VER_BEFORE"
 if [ "$VER_BEFORE" != "$EXPECTED_BEFORE" ]; then
@@ -115,6 +144,10 @@ if [ "$VER_AFTER" != "$EXPECTED_AFTER" ]; then
   printf "Error: switched version does not match %s (%s)\n" "$TARGET" "$EXPECTED_AFTER" >&2
   exit 1
 fi
+if [ "$BLUE_TAG" != "$GREEN_TAG" ] && [ "$VER_BEFORE" = "$VER_AFTER" ]; then
+  printf 'Error: proxy version did not change between distinct tags\n' >&2
+  exit 1
+fi
 printf "${GREEN}Target version verified: %s${RESET}\n" "$VER_AFTER"
 
 # 4. Switch back and verify the original version.
@@ -131,6 +164,10 @@ fi
 printf "${BLUE}Rollback verified: %s${RESET}\n" "$VER_BACK"
 
 printf "\n=== Demo check passed ===\n"
-printf "The cutover is observable via curl http://localhost:%s/version before/after switch.\n" "$PORT"
+if [ "$BLUE_TAG" != "$GREEN_TAG" ]; then
+  printf "The cutover is observable via curl http://localhost:%s/version before/after switch.\n" "$PORT"
+else
+  printf "Both slots use the same tag; /version cannot distinguish the cutover.\n"
+fi
 printf "This script is manual and not wired into .github/workflows/ci.yml (deliberate).\n"
 printf "To clean up: docker compose -f %s down -v\n" "$COMPOSE_FILE"

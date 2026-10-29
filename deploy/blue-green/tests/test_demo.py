@@ -17,8 +17,14 @@ COMPOSE = ["docker", "compose", "-f", str(DEMO / "compose.yml")]
 @pytest.fixture(scope="session", autouse=True)
 def isolated_test_project():
     project = os.environ.get("COMPOSE_PROJECT_NAME")
-    if not project or project == "hiss-blue-green" or os.environ.get("BLUE_GREEN_TEST_PROJECT") != project:
-        pytest.skip("Set BLUE_GREEN_TEST_PROJECT to an isolated COMPOSE_PROJECT_NAME; these tests change the demo")
+    if (
+        not project
+        or project == "hiss-blue-green"
+        or os.environ.get("BLUE_GREEN_TEST_PROJECT") != project
+    ):
+        pytest.skip(
+            "Set BLUE_GREEN_TEST_PROJECT to an isolated COMPOSE_PROJECT_NAME; these tests change the demo"
+        )
 
 
 def run(*args, check=True):
@@ -47,9 +53,37 @@ def curl_fault_env(tmp_path, fail_at, version="audit-injected-mismatch"):
     return env
 
 
+def reset_slots():
+    env = os.environ.copy()
+    env.update(BLUE_TAG="0.1.0", GREEN_TAG="0.1.1")
+    subprocess.run(
+        [
+            *COMPOSE,
+            "up",
+            "-d",
+            "--no-deps",
+            "--pull",
+            "never",
+            "--wait",
+            "--wait-timeout",
+            "60",
+            "blue",
+            "green",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    run(str(DEMO / "switch.sh"), "switch", "blue")
+    return env
+
+
 def health(service):
     container = run(*COMPOSE, "ps", "-q", service).stdout.strip()
-    return run("docker", "inspect", "--format", "{{.State.Health.Status}}", container).stdout.strip()
+    return run(
+        "docker", "inspect", "--format", "{{.State.Health.Status}}", container
+    ).stdout.strip()
 
 
 def test_proxy_is_healthy():
@@ -61,7 +95,9 @@ def test_slots_wait_for_a_single_migration_job():
     services = config["services"]
     assert "migrate" in services
     for slot in ("blue", "green"):
-        assert services[slot]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+        assert (
+            services[slot]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+        )
         assert services[slot]["entrypoint"][0] == "gunicorn"
     assert services["migrate"]["entrypoint"][0] == "alembic"
 
@@ -144,9 +180,7 @@ def test_script_requires_password_for_compose():
 def test_demo_requires_password_for_compose():
     env = os.environ.copy()
     env.pop("POSTGRES_PASSWORD", None)
-    result = subprocess.run(
-        [str(DEMO / "demo-check.sh")], capture_output=True, text=True, env=env
-    )
+    result = subprocess.run([str(DEMO / "demo-check.sh")], capture_output=True, text=True, env=env)
     assert result.returncode != 0
     assert "Error: POSTGRES_PASSWORD must be set" in result.stderr
 
@@ -217,14 +251,86 @@ def test_demo_preserves_deployed_slots():
     assert f"Project: {os.environ['COMPOSE_PROJECT_NAME']}" in result.stdout
 
 
+def test_demo_rejects_stuck_blue_with_both_slots_reporting_blue_version(tmp_path):
+    env = reset_slots()
+    docker = tmp_path / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  *"exec -T green python"*) echo \'{"version":"0.1.0"}\'; exit 0;;\n'
+        '  *"exec -T proxy sh -c"*) exit 0;;\n'
+        "esac\n"
+        f'exec {shlex.quote(shutil.which("docker"))} "$@"\n'
+    )
+    docker.chmod(0o755)
+    curl = tmp_path / "curl"
+    curl.write_text(
+        "#!/bin/sh\n"
+        'for arg do case "$arg" in */version) echo \'{"version":"0.1.0"}\'; exit 0;; esac; done\n'
+        f'exec {shlex.quote(shutil.which("curl"))} "$@"\n'
+    )
+    curl.chmod(0o755)
+    env["PATH"] = f"{tmp_path}:{env['PATH']}"
+    result = subprocess.run([str(DEMO / "demo-check.sh")], capture_output=True, text=True, env=env)
+    assert result.returncode != 0, result.stdout
+    assert "Demo check passed" not in result.stdout
+    assert "green" in result.stderr.lower()
+    assert "Active slot: blue" in run(str(DEMO / "switch.sh"), "status").stdout
+
+
+def test_demo_rejects_proxy_that_does_not_change_version(tmp_path):
+    reset_slots()
+    result = subprocess.run(
+        [str(DEMO / "demo-check.sh")],
+        capture_output=True,
+        text=True,
+        env=curl_fault_env(tmp_path, 0, version="0.1.0"),
+    )
+    assert result.returncode != 0, result.stdout
+    assert "Demo check passed" not in result.stdout
+    assert "Active slot: blue" in run(str(DEMO / "switch.sh"), "status").stdout
+
+
+def test_demo_with_identical_tags_does_not_claim_observable_version_change():
+    env = os.environ.copy()
+    env.update(BLUE_TAG="0.1.0", GREEN_TAG="0.1.0")
+    try:
+        subprocess.run(
+            [
+                *COMPOSE,
+                "up",
+                "-d",
+                "--no-deps",
+                "--pull",
+                "never",
+                "--wait",
+                "--wait-timeout",
+                "60",
+                "blue",
+                "green",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        )
+        result = subprocess.run(
+            [str(DEMO / "demo-check.sh")], capture_output=True, text=True, env=env, check=True
+        )
+        assert "Demo check passed" in result.stdout
+        assert "/version cannot distinguish the cutover" in result.stdout
+    finally:
+        reset_slots()
+
+
 def test_demo_requires_healthy_proxy(tmp_path):
     docker = tmp_path / "docker"
     docker_bin = shlex.quote(shutil.which("docker"))
     docker.write_text(
         "#!/bin/sh\n"
         'if [ "$1" = inspect ]; then\n'
-        '  for last do :; done\n'
-        f'  name=$({docker_bin} inspect --format \'{{{{.Name}}}}\' "$last" 2>/dev/null)\n'
+        "  for last do :; done\n"
+        f"  name=$({docker_bin} inspect --format '{{{{.Name}}}}' \"$last\" 2>/dev/null)\n"
         '  case "$name" in */*proxy-1) echo unhealthy; exit 0;; esac\n'
         "fi\n"
         f'exec {docker_bin} "$@"\n'

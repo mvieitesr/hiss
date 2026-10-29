@@ -13,7 +13,7 @@ on:
         type: string
         default: ""
       source_tag:
-        description: Existing commit image tag to promote; empty builds a new image
+        description: Existing commit image tag to promote; empty builds or reuses the commit image
         required: false
         type: string
         default: ""
@@ -59,8 +59,41 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push image
+      - name: Find existing commit image
         if: inputs.source_tag == ''
+        id: existing
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          TAG: ${{ inputs.tag }}
+          COMMIT_SHA: ${{ steps.revision.outputs.sha }}
+        run: |
+          set -euo pipefail
+          error_file="$(mktemp)"
+          trap 'rm -f "$error_file"' EXIT
+          if digest="$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{.Manifest.Digest}}' 2>"$error_file")"; then
+            if ! docker buildx imagetools inspect "$IMAGE@$digest" --format '{{json .Image}}' |
+              jq -e --arg sha "$COMMIT_SHA" \
+                '[.. | objects | select(.config? | type == "object") | .config.Labels["org.opencontainers.image.revision"]] | length > 0 and all(. == $sha)' >/dev/null; then
+              echo "Commit image revision does not match $COMMIT_SHA: $IMAGE@$digest" >&2
+              exit 1
+            fi
+            echo "Reusing $IMAGE:$TAG at $digest"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          else
+            error="$(cat "$error_file")"
+            case "$error" in
+              *': not found'*|*'manifest unknown'*|*'MANIFEST_UNKNOWN'*|*'404 Not Found'*)
+                echo "Commit image $IMAGE:$TAG not found; building it"
+                ;;
+              *)
+                echo "Cannot check commit image $IMAGE:$TAG: $error" >&2
+                exit 1
+                ;;
+            esac
+          fi
+      - name: Build and push image
+        if: inputs.source_tag == '' && steps.existing.outputs.digest == ''
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -105,7 +138,7 @@ jobs:
         shell: bash
         env:
           IMAGE: ${{ steps.image.outputs.image }}
-          DIGEST: ${{ steps.build.outputs.digest || steps.promote.outputs.digest }}
+          DIGEST: ${{ steps.build.outputs.digest || steps.existing.outputs.digest || steps.promote.outputs.digest }}
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
