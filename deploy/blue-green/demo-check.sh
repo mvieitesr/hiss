@@ -15,9 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/compose.yml"
 SWITCH_SH="$SCRIPT_DIR/switch.sh"
 PORT="${BLUE_GREEN_PORT:-9000}"
-# Use POSTGRES_PASSWORD from env if set, otherwise fallback to demo value
-# (compose requires it; .env.example uses "changeme")
-export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-changeme}"
+if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+  printf "Error: POSTGRES_PASSWORD must be set (use the same value as compose up).\n" >&2
+  exit 1
+fi
 
 # Colors if tty
 if [ -t 1 ]; then

@@ -50,6 +50,26 @@ def test_status_uses_proxy_configuration():
     assert "Active slot: green" in run(str(DEMO / "switch.sh"), "status").stdout
 
 
+def test_script_requires_password_for_compose():
+    env = os.environ.copy()
+    env.pop("POSTGRES_PASSWORD", None)
+    result = subprocess.run(
+        [str(DEMO / "switch.sh"), "status"], capture_output=True, text=True, env=env
+    )
+    assert result.returncode != 0
+    assert "Error: POSTGRES_PASSWORD must be set" in result.stderr
+
+
+def test_demo_requires_password_for_compose():
+    env = os.environ.copy()
+    env.pop("POSTGRES_PASSWORD", None)
+    result = subprocess.run(
+        [str(DEMO / "demo-check.sh")], capture_output=True, text=True, env=env
+    )
+    assert result.returncode != 0
+    assert "Error: POSTGRES_PASSWORD must be set" in result.stderr
+
+
 def test_active_slot_survives_proxy_recreation():
     run(str(DEMO / "switch.sh"), "switch", "green")
     run(*COMPOSE, "up", "-d", "--no-deps", "--force-recreate", "proxy")

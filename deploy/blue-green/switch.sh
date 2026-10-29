@@ -47,7 +47,7 @@ Shorthand:
 
 Environment:
   BLUE_GREEN_PORT       Host port for proxy (default 9000)
-  POSTGRES_PASSWORD     Required for "deploy" (must be set, same as compose up)
+  POSTGRES_PASSWORD     Required for all operations (same as compose up)
   BLUE_TAG / GREEN_TAG  Override image tags for the respective slot (used by deploy)
 
 Examples:
@@ -187,13 +187,6 @@ do_deploy() {
 
   printf "Deploying tag %s to inactive slot %s (current %s)...\n" "$tag" "$inactive" "$current"
 
-  # Ensure POSTGRES_PASSWORD is set (compose requires it)
-  if [ -z "${POSTGRES_PASSWORD:-}" ]; then
-    printf "Error: POSTGRES_PASSWORD must be set for deploy (same as compose up)\n" >&2
-    printf "  POSTGRES_PASSWORD=... %s deploy %s\n" "$0" "$tag" >&2
-    exit 1
-  fi
-
   # Pull and up the inactive slot with the new tag.
   # We set the slot-specific tag env var for this compose invocation only.
   # Use --pull never for local validation (images may be local-only in tests);
@@ -252,6 +245,10 @@ if [ $# -eq 0 ]; then
 fi
 
 cmd="$1"
+if [ "$cmd" != "help" ] && [ "$cmd" != "--help" ] && [ "$cmd" != "-h" ] && [ -z "${POSTGRES_PASSWORD:-}" ]; then
+  printf "Error: POSTGRES_PASSWORD must be set (use the same value as compose up).\n" >&2
+  exit 1
+fi
 # Support shorthand: ./switch.sh blue|green
 if [ "$cmd" = "blue" ] || [ "$cmd" = "green" ]; then
   do_switch "$cmd"
