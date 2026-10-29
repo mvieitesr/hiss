@@ -51,6 +51,8 @@ def create_project():
         return bad_request("key is required")
     if not name or not isinstance(name, str):
         return bad_request("name is required")
+    if "/" in key or key in {".", ".."}:
+        return bad_request("key must be a routable path segment")
     if len(key) > 50:
         return bad_request("key must be at most 50 characters")
     if len(name) > 200:

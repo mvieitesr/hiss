@@ -27,6 +27,8 @@ def create_label():
     if not name or not isinstance(name, str) or not name.strip():
         return bad_request("name is required")
     name = name.strip()
+    if "/" in name or name in {".", ".."}:
+        return bad_request("name must be a routable path segment")
     if len(name) > 100:
         return bad_request("name must be at most 100 characters")
 

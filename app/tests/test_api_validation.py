@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 
 import pytest
 
@@ -107,6 +108,48 @@ def test_text_limits_apply_after_trim(client, api_resources, method, path, paylo
     assert isinstance(rejected.get_json()["message"], str)
     if method == "PATCH":
         assert client.get(path).get_json()[field] == "x" * limit
+
+
+@pytest.mark.parametrize("identifier", ["a/b", "/", ".", "..", "  ..  "])
+@pytest.mark.parametrize("resource", ["project", "label"])
+def test_create_rejects_unroutable_identifiers(client, resource, identifier):
+    if resource == "project":
+        response = client.post("/api/v1/projects", json={"key": identifier, "name": "Project"})
+    else:
+        response = client.post("/api/v1/labels", json={"name": identifier})
+
+    assert response.status_code == 400
+    assert response.is_json
+    assert response.get_json()["error"] == "bad_request"
+    assert isinstance(response.get_json()["message"], str)
+
+
+@pytest.mark.parametrize("identifier", ["what?now", "hash#name", "with space", "café", ".hidden"])
+def test_encoded_identifiers_support_create_list_use_and_delete(client, identifier):
+    segment = quote(identifier, safe="")
+    assert (
+        client.post("/api/v1/projects", json={"key": identifier, "name": "Project"}).status_code
+        == 201
+    )
+    assert client.post("/api/v1/labels", json={"name": identifier}).status_code == 201
+    assert identifier in [p["key"] for p in client.get("/api/v1/projects").get_json()]
+    assert identifier in [label["name"] for label in client.get("/api/v1/labels").get_json()]
+
+    issue = client.post(f"/api/v1/projects/{segment}/issues", json={"title": "Issue"})
+    assert issue.status_code == 201
+    issue_id = issue.get_json()["id"]
+    assert [i["id"] for i in client.get(f"/api/v1/projects/{segment}/issues").get_json()] == [
+        issue_id
+    ]
+    attached = client.post(f"/api/v1/issues/{issue_id}/labels/{segment}")
+    assert attached.status_code == 200
+    assert [label["name"] for label in attached.get_json()["labels"]] == [identifier]
+    detached = client.delete(f"/api/v1/issues/{issue_id}/labels/{segment}")
+    assert detached.status_code == 200
+    assert detached.get_json()["labels"] == []
+    assert client.delete(f"/api/v1/labels/{segment}").status_code == 204
+    assert client.delete(f"/api/v1/projects/{segment}").status_code == 204
+    assert client.get(f"/api/v1/issues/{issue_id}").status_code == 404
 
 
 def test_issue_patch_allows_empty_object_and_null_description(client, api_resources):
