@@ -2,6 +2,8 @@
 
 import json
 import os
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -14,17 +16,17 @@ def run(*args, check=True):
     return subprocess.run(args, check=check, capture_output=True, text=True, env=os.environ)
 
 
-def curl_fault_env(tmp_path, fail_at):
+def curl_fault_env(tmp_path, fail_at, version="audit-injected-mismatch"):
     shim = tmp_path / "curl"
     shim.write_text(
         "#!/bin/sh\n"
         'for arg do case "$arg" in */version)\n'
         '  count=0; [ ! -f "$CURL_COUNT" ] || count=$(cat "$CURL_COUNT")\n'
         '  count=$((count + 1)); echo "$count" > "$CURL_COUNT"\n'
-        '  if [ "$count" -eq "$CURL_FAIL_AT" ]; then\n'
-        "    printf '%s\\n' '{\"version\":\"audit-injected-mismatch\"}'; exit 0\n"
+        '  if [ "$CURL_FAIL_AT" -eq 0 ] || [ "$count" -eq "$CURL_FAIL_AT" ]; then\n'
+        f"    printf '%s\\n' {shlex.quote(json.dumps({'version': version}))}; exit 0\n"
         "  fi;; esac; done\n"
-        'exec /usr/bin/curl "$@"\n'
+        f'exec {shlex.quote(shutil.which("curl"))} "$@"\n'
     )
     shim.chmod(0o755)
     env = os.environ.copy()
@@ -112,6 +114,58 @@ def test_demo_rejects_wrong_rollback_version(tmp_path):
     )
     assert "audit-injected-mismatch" in result.stdout
     assert result.returncode != 0
+
+
+def test_demo_rejects_empty_switch_version(tmp_path):
+    before = run(str(DEMO / "switch.sh"), "status").stdout.splitlines()[0]
+    result = subprocess.run(
+        [str(DEMO / "demo-check.sh")],
+        capture_output=True,
+        text=True,
+        env=curl_fault_env(tmp_path, 4, version=""),
+    )
+    assert result.returncode != 0
+    assert run(str(DEMO / "switch.sh"), "status").stdout.splitlines()[0] == before
+
+
+def test_rollback_rejects_wrong_version(tmp_path):
+    result = subprocess.run(
+        [str(DEMO / "switch.sh"), "rollback"],
+        capture_output=True,
+        text=True,
+        env=curl_fault_env(tmp_path, 0),
+    )
+    assert "audit-injected-mismatch" in result.stdout
+    assert result.returncode != 0
+
+
+def test_demo_preserves_deployed_slots():
+    run(str(DEMO / "switch.sh"), "deploy", "0.1.0-snapshot")
+    before = {slot: run(*COMPOSE, "ps", "-q", slot).stdout for slot in ("blue", "green")}
+    result = run(str(DEMO / "demo-check.sh"))
+    after = {slot: run(*COMPOSE, "ps", "-q", slot).stdout for slot in ("blue", "green")}
+    assert before == after
+    assert f"Project: {os.environ['COMPOSE_PROJECT_NAME']}" in result.stdout
+
+
+def test_demo_requires_healthy_proxy(tmp_path):
+    docker = tmp_path / "docker"
+    docker_bin = shlex.quote(shutil.which("docker"))
+    docker.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = inspect ]; then\n'
+        '  for last do :; done\n'
+        f'  name=$({docker_bin} inspect --format \'{{{{.Name}}}}\' "$last" 2>/dev/null)\n'
+        '  case "$name" in */*proxy-1) echo unhealthy; exit 0;; esac\n'
+        "fi\n"
+        f'exec {docker_bin} "$@"\n'
+    )
+    docker.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}:{env['PATH']}"
+    result = subprocess.run([str(DEMO / "demo-check.sh")], capture_output=True, text=True, env=env)
+    assert result.returncode != 0
+    assert "proxy" in result.stdout or "proxy" in result.stderr
 
 
 def test_active_slot_survives_proxy_recreation():

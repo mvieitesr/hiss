@@ -168,6 +168,22 @@ do_switch() {
   fi
 }
 
+# Verify that the proxy serves the expected non-empty version.
+verify_version() {
+  local expected="$1" ver
+  printf "Verifying version via proxy...\n"
+  if ! ver="$(curl --fail --silent --show-error --max-time 5 "http://localhost:${PORT}/version")"; then
+    printf "Error: cannot read proxy version\n" >&2
+    return 1
+  fi
+  printf "Proxy /version: %s\n" "$ver"
+  if ! printf '%s\n' "$ver" | jq --exit-status --arg expected "$expected" '.version == $expected and (.version | type == "string" and length > 0)' >/dev/null 2>&1; then
+    printf "Error: version mismatch or empty (expected %s)\n" "$expected" >&2
+    return 1
+  fi
+  printf "Version check passed: %s\n" "$expected"
+}
+
 # Deploy a tag to the inactive slot, wait healthy, then switch
 do_deploy() {
   local tag="$1"
@@ -212,32 +228,31 @@ do_deploy() {
   # Switch traffic to the newly deployed slot
   do_switch "$inactive"
 
-  # Final smoke-test: version must match the deployed tag.
-  printf "Verifying version via proxy...\n"
-  local ver
-  if ! ver="$(curl --fail --silent --show-error --max-time 5 "http://localhost:${PORT}/version")"; then
-    printf "Error: cannot read proxy version\n" >&2
-    return 1
-  fi
-  printf "Proxy /version: %s\n" "$ver"
-  if ! printf '%s\n' "$ver" | jq --exit-status --arg expected "$tag" '.version == $expected and (.version | type == "string" and length > 0)' >/dev/null 2>&1; then
-    printf "Error: version mismatch or empty (expected %s)\n" "$tag" >&2
-    return 1
-  fi
-  printf "Version check passed: %s\n" "$tag"
+  verify_version "$tag"
 }
 
 # Rollback is switching to the opposite slot (the one not currently active)
 do_rollback() {
-  local current inactive
+  if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    printf "Error: rollback requires curl and jq to verify the version\n" >&2
+    return 1
+  fi
+  local current inactive expected
   current="$(get_active)"
   if [ "$current" = "blue" ]; then
     inactive="green"
   else
     inactive="blue"
   fi
+  if ! expected="$(docker compose -f "$COMPOSE_FILE" exec -T "$inactive" python -c \
+    'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8000/version", timeout=5).read().decode())' |
+    jq -er '.version | select(type == "string" and length > 0)')"; then
+    printf "Error: cannot read the rollback slot version\n" >&2
+    return 1
+  fi
   printf "Rollback: switching from %s to %s\n" "$current" "$inactive"
   do_switch "$inactive"
+  verify_version "$expected"
 }
 
 # Main dispatch
