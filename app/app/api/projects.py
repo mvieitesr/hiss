@@ -39,7 +39,7 @@ def list_projects():
 @api_bp.route("/projects", methods=["POST"])
 def create_project():
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
     key = (data.get("key") or "").strip() if isinstance(data.get("key"), str) else data.get("key")
     name = (

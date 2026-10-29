@@ -21,7 +21,7 @@ def list_labels():
 @api_bp.route("/labels", methods=["POST"])
 def create_label():
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
     name = data.get("name")
     if not name or not isinstance(name, str) or not name.strip():

@@ -74,7 +74,7 @@ def create_issue_for_project(key: str):
         return not_found(f"project '{key}' not found")
 
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
 
     title = data.get("title")
@@ -96,7 +96,7 @@ def create_issue_for_project(key: str):
     status_val = "open"
     if "status" in data:
         s = data.get("status")
-        if s not in VALID_STATUSES:
+        if not isinstance(s, str) or s not in VALID_STATUSES:
             return bad_request(f"invalid status '{s}'")
         status_val = s
 
@@ -129,19 +129,19 @@ def update_issue(issue_id: int):
         return not_found(f"issue {issue_id} not found")
 
     data = request.get_json(silent=True)
-    if data is None:
+    if not isinstance(data, dict):
         return bad_request("invalid JSON body")
 
     # Validate enums before update
     if "status" in data:
         status_val = data["status"]
-        if status_val not in VALID_STATUSES:
+        if not isinstance(status_val, str) or status_val not in VALID_STATUSES:
             return bad_request(f"invalid status '{status_val}'")
         issue.status = status_val
 
     if "priority" in data:
         priority_val = data["priority"]
-        if priority_val not in VALID_PRIORITIES:
+        if not isinstance(priority_val, str) or priority_val not in VALID_PRIORITIES:
             return bad_request(f"invalid priority '{priority_val}'")
         issue.priority = priority_val
 
