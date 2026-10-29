@@ -287,8 +287,13 @@ async function loadProjectsView(epoch = state.navigationEpoch) {
   } catch (error) {
     if (!isCurrentNavigation(epoch)) return;
     showAlert(error.message || 'Failed to load projects');
-    renderErrorState('Could not load projects', 'Check the API connection and try again.', '<a class="btn btn-sm btn-primary" href="#/projects">Try again</a>');
+    renderErrorState('Could not load projects', 'Check the API connection and try again.', '<button type="button" class="btn btn-sm btn-primary" onclick="app.retryProjects()">Try again</button>');
   }
+}
+
+function retryProjects() {
+  clearAlerts();
+  return loadProjectsView();
 }
 
 function renderProjectsList(projects) {
@@ -1366,6 +1371,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 window.app = {
   navigateHome,
+  retryProjects,
   openCreateProjectModal,
   openCreateIssueModal,
   openManageLabelsModal,

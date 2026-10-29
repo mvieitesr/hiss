@@ -170,8 +170,26 @@ def h07_flag(api, page, suffix):
     assert requests[-1] == {"status": ["open"]}, f"missing unlabelled retry: {requests}"
 
 
+def h10(api, page, suffix):
+    post(api, "projects", {"key": f"R{suffix}", "name": "Retry project"})
+    path = "**/api/v1/projects"
+    page.route(
+        path,
+        lambda route: route.fulfill(
+            status=503, content_type="application/json", body='{"message":"Projects unavailable"}'
+        ),
+    )
+    page.goto(f"{BASE}/#/projects")
+    page.get_by_role("heading", name="Could not load projects").wait_for()
+    page.unroute(path)
+    page.get_by_text("Try again", exact=True).click()
+    page.get_by_text("Retry project", exact=True).wait_for(timeout=2000)
+
+
 def main():
-    checks = {"H02": h02, "H06": h06, "H07-error": h07_error, "H07-flag": h07_flag}
+    checks = {
+        "H02": h02, "H06": h06, "H07-error": h07_error, "H07-flag": h07_flag, "H10": h10
+    }
     requested = sys.argv[1:] or list(checks)
     unknown = set(requested) - checks.keys()
     if unknown:
