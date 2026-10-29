@@ -7,37 +7,21 @@ comportamiento por Environment sin reconstruir la imagen.
 
 ## Principio 12-factor
 
-La app no lee ficheros de configuración por entorno. Toda configuración
-entra por variables de entorno en tiempo de ejecución. La clase
-`app/app/config.py` centraliza la lectura:
-
-```python
-# app/app/config.py
-class Config:
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-    APP_VERSION: str = os.getenv("APP_VERSION", "dev")
-    FEATURE_LABEL_FILTERING: bool = _parse_feature_flag(
-        os.getenv("FEATURE_LABEL_FILTERING", "true")
-    )
-    SQLALCHEMY_DATABASE_URI: str = _to_psycopg_uri(DATABASE_URL or "sqlite:///:memory:")
-```
-
-`create_app` relee el entorno en cada llamada para que los tests puedan
-mutar flags sin recargar el proceso. Los valores por defecto permiten
+La app no lee ficheros de configuración por entorno. `create_app` en `app/app/__init__.py` lee las variables al crear cada app y usa `_parse_feature_flag` de `app/app/config.py` para interpretar la flag; convierte la URL de PostgreSQL para el driver psycopg. Así los tests pueden mutar flags sin recargar el proceso. Los valores por defecto permiten
 arrancar sin entorno completo (`sqlite:///:memory:` para tests,
 `APP_VERSION=dev`).
 
 ## `deploy/*.env` — configuración versionada no secreta
 
-Tres ficheros idénticos en estructura, distintos solo en cuatro valores.
+Tres ficheros idénticos en estructura, distintos en cinco valores.
 Están en Git y se pueden auditar:
 
 | Variable | `deploy/dev.env` | `deploy/staging.env` | `deploy/prod.env` |
 | --- | --- | --- | --- |
 | `COMPOSE_PROJECT_NAME` | `hiss-dev` | `hiss-staging` | `hiss-prod` |
-| `IMAGE` | `ghcr.io/vieitesss/hiss` | `ghcr.io/vieitesss/hiss` | `ghcr.io/vieitesss/hiss` |
-| `IMAGE_TAG` | `edge` | `0.1.0-snapshot` | `0.1.0` |
-| `APP_VERSION` | `edge` | `0.1.0-snapshot` | `0.1.0` |
+| `IMAGE` | `ghcr.io/mvieitesr/hiss` | `ghcr.io/mvieitesr/hiss` | `ghcr.io/mvieitesr/hiss` |
+| `IMAGE_TAG` | vacío (inyectar SHA8) | `0.1.0-snapshot` | `0.1.0` |
+| `APP_VERSION` | vacío (inyectar SHA8) | `0.1.0-snapshot` | `0.1.0` |
 | `APP_PORT` | `8001` | `8002` | `8003` |
 | `FEATURE_LABEL_FILTERING` | `true` | `true` | `false` |
 | `POSTGRES_DB` | `hiss` | `hiss` | `hiss` |
@@ -54,17 +38,16 @@ Todos declaran:
 validar otro registro sin editar el repo:
 
 ```sh
-IMAGE=ghcr.io/otro/hiss docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev config | grep image:
+POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef IMAGE=ghcr.io/otro/hiss \
+  docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-docs-check config --images
 ```
 
-`IMAGE_TAG` y `APP_VERSION` siguen al tag desplegado (`DEPLOY_TAG` en los
-workflows). En `dev` el valor real es `GITHUB_SHA::8`, no `edge` — `edge`
-es solo placeholder del fichero.
+Las variables son independientes: en dev ambas se inyectan con SHA8; en CD `IMAGE_TAG` incluye `tag@digest` y `APP_VERSION` solo el tag. `APP_TAG` no se usa. `/version` devuelve `APP_VERSION`, no demuestra el digest. Los workflows derivan `IMAGE` del dueño del repositorio en minúsculas; el `.env` solo es el valor manual por defecto. Los tags de ejemplo `0.1.0`, `0.1.1` y `0.1.0-snapshot` de `mvieitesr/hiss` los publicará el responsable del repositorio antes de la práctica.
 
 Comprueba que ningún `.env` contiene secretos:
 
 ```sh
-grep -r POSTGRES_PASSWORD deploy/*.env || echo "ok: ningún secreto versionado"
+grep -n '^POSTGRES_PASSWORD=' deploy/*.env || echo "ok: ningún secreto versionado"
 cat deploy/dev.env
 cat deploy/staging.env
 cat deploy/prod.env
@@ -95,15 +78,18 @@ Inyecta la contraseña desde el entorno del proceso:
 
 ```sh
 export POSTGRES_PASSWORD='elige-un-secreto-local'
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
 docker compose --env-file deploy/dev.env -p hiss-dev up -d
 docker compose --env-file deploy/dev.env -p hiss-dev ps
 
-# También puede invocarse con -f explícito
+# Para staging/prod usa sus valores del env-file
+unset IMAGE_TAG APP_VERSION
 docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging up -d
 docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
 
-# Verificación de que el secreto llegó al contenedor
-docker compose --env-file deploy/dev.env -p hiss-dev exec db env | grep POSTGRES_PASSWORD
+# Restablece valores de dev antes de cualquier comando Compose de dev
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
+# Readiness prueba la conexión sin imprimir la contraseña
 curl --fail http://localhost:8001/readyz | jq .  # hace SELECT 1 real con la contraseña
 ```
 
@@ -125,23 +111,22 @@ deploy:
   environment: dev
   env:
     DEPLOY_TAG: ${{ needs.prepare.outputs.tag }}
+    IMAGE: ${{ needs.build.outputs.image }}
+    DIGEST: ${{ needs.build.outputs.digest }}
     POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
   steps:
     - run: |
-        POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
+        POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
           docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull
-        POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
-          docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+        POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
+          docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d --no-build --pull never
 ```
 
 Configura el secreto por Environment en **Settings → Environments → dev/staging/prod →
 Environment secrets → POSTGRES_PASSWORD** (ver `docs/setup.md`). `prod`
 además tiene `Required reviewers` — el despliegue pausa hasta aprobación.
 
-El secreto nunca se escribe en `deploy/*.env` ni en logs. Si `GHCR` fuese
-privado, también haría falta `docker/login-action`, pero el paquete es
-público (`ghcr.io/vieitesss/hiss` en **Packages → Visibility → Public**) y
-el `pull` es anónimo.
+El secreto no se escribe en `deploy/*.env`. Evita mostrar `docker compose config` o `inspect` con secretos reales: contienen valores interpolados. Un paquete privado requiere autenticación de Docker en el runner; un paquete público permite pull anónimo (ver `docs/setup.md`).
 
 ## Feature Flag — `FEATURE_LABEL_FILTERING`
 
@@ -173,51 +158,57 @@ Pruebas en `app/tests/test_probes_version_flag.py`:
 - `test_label_filter_when_flag_on_returns_filtered` — con flag `true` filtra por label.
 - `test_label_filter_when_flag_off_returns_400` — con `FEATURE_LABEL_FILTERING=false` la query `?label=bug` devuelve `400` con mensaje `disabled` o `flag`.
 
-Para probar localmente:
+Si la API devuelve `feature_disabled`, la SPA retira el filtro de Label, conserva los demás filtros y recarga mostrando un aviso. Para probar localmente, crea `PRJ` en cada base independiente (o usa otra key si ya existe):
 
 ```sh
 # Con filtrado activo (dev/staging)
 export POSTGRES_PASSWORD='elige-un-secreto-local'
-docker compose --env-file deploy/dev.env -p hiss-dev up -d
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
+docker compose --env-file deploy/dev.env -p hiss-dev up -d --wait --wait-timeout 60
+curl -fsS -X POST -H 'Content-Type: application/json' -d '{"key":"PRJ","name":"Proyecto"}' http://localhost:8001/api/v1/projects
 curl -s http://localhost:8001/api/v1/projects/PRJ/issues?label=bug | jq .
 
-# Con filtrado desactivo (prod)
-docker compose --env-file deploy/prod.env -p hiss-prod up -d
+# Con filtrado desactivado (prod)
+unset IMAGE_TAG APP_VERSION
+docker compose --env-file deploy/prod.env -p hiss-prod up -d --wait --wait-timeout 60
+curl -fsS -X POST -H 'Content-Type: application/json' -d '{"key":"PRJ","name":"Proyecto"}' http://localhost:8003/api/v1/projects
 curl -s http://localhost:8003/api/v1/projects/PRJ/issues?label=bug | jq .
-# → {"message":"label filtering disabled"}  (400)
+# → {"error":"feature_disabled","message":"label filtering is disabled (FEATURE_LABEL_FILTERING=false)"}  (400)
 
 # Sobrescribir sin editar .env
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
 FEATURE_LABEL_FILTERING=false docker compose --env-file deploy/dev.env -p hiss-dev up -d
 ```
 
 La flag demuestra el patrón 12-factor: el mismo artefacto
-(`ghcr.io/vieitesss/hiss:<tag>`) se comporta distinto según el entorno que
+(`ghcr.io/mvieitesr/hiss:<tag>`) se comporta distinto según el entorno que
 lo ejecuta.
 
 ## Resumen de verificación
 
 ```sh
 # Ningún secreto en ficheros versionados
-grep -rn POSTGRES_PASSWORD deploy/*.env && echo "ERROR" || echo "ok"
+grep -n '^POSTGRES_PASSWORD=' deploy/*.env && echo "ERROR" || echo "ok"
 
 # Config por Environment visible y parametrizable
 cat deploy/dev.env | grep -E "IMAGE|APP_PORT|FEATURE_LABEL_FILTERING"
 cat deploy/prod.env | grep -E "IMAGE|APP_PORT|FEATURE_LABEL_FILTERING"
-IMAGE=example.invalid/x docker compose -f deploy/compose.yml --env-file deploy/dev.env config | grep example.invalid
+POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef IMAGE=example.invalid/x docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-docs-check config --images
 
 # Compose valida presencia del secreto
-POSTGRES_PASSWORD=dummy docker compose --env-file deploy/dev.env -p hiss-dev config -q && echo "config ok"
+POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef docker compose --env-file deploy/dev.env -p hiss-docs-check config -q && echo "config ok"
 # Sin contraseña debe fallar
-POSTGRES_PASSWORD= docker compose --env-file deploy/dev.env -p hiss-dev config && echo "debe fallar" || echo "falla como debe"
+POSTGRES_PASSWORD= IMAGE_TAG=deadbeef APP_VERSION=deadbeef docker compose --env-file deploy/dev.env -p hiss-docs-check config -q && echo "debe fallar" || echo "falla como debe"
 
 # Feature flag en código y tests
-grep -n FEATURE_LABEL_FILTERING app/app/config.py
+grep -n FEATURE_LABEL_FILTERING app/app/__init__.py
 grep -n FEATURE_LABEL_FILTERING app/tests/test_probes_version_flag.py
 grep -n FEATURE_LABEL_FILTERING deploy/*.env
 
 # Despliegue con secreto inyectado
 export POSTGRES_PASSWORD='elige-un-secreto-local'
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
+docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d --wait --wait-timeout 60
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .

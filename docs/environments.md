@@ -27,16 +27,17 @@ mismo host:
 
 ```sh
 export POSTGRES_PASSWORD='elige-un-secreto-local'
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
 docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+unset IMAGE_TAG APP_VERSION  # usa los tags de cada env-file para staging/prod
 docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging up -d
 docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
-docker compose --env-file deploy/dev.env -p hiss-dev ps
+IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" docker compose --env-file deploy/dev.env -p hiss-dev ps
 docker compose --env-file deploy/staging.env -p hiss-staging ps
 docker compose --env-file deploy/prod.env -p hiss-prod ps
 ```
 
-Consulta [`docs/setup.md`](setup.md) para la guía completa de puesta en
-marcha.
+El responsable del repositorio publicará `0.1.0-snapshot` y `0.1.0` en `ghcr.io/mvieitesr/hiss` antes de la práctica; usa un SHA8 publicado para dev. Para un fork exporta `IMAGE=ghcr.io/<dueño-en-minúsculas>/hiss`. Consulta [`docs/setup.md`](setup.md) para la guía completa.
 
 ## Configuración por Environment
 
@@ -47,22 +48,23 @@ secreta. La contraseña nunca aparece en ellos — se inyecta desde
 | Variable | `dev` (`deploy/dev.env`) | `staging` (`deploy/staging.env`) | `prod` (`deploy/prod.env`) |
 | --- | --- | --- | --- |
 | `COMPOSE_PROJECT_NAME` | `hiss-dev` | `hiss-staging` | `hiss-prod` |
-| `IMAGE` | `ghcr.io/vieitesss/hiss` | `ghcr.io/vieitesss/hiss` | `ghcr.io/vieitesss/hiss` |
-| `IMAGE_TAG` | `edge` (placeholder; en real `GITHUB_SHA::8`) | `0.1.0-snapshot` | `0.1.0` |
-| `APP_VERSION` | `edge` | `0.1.0-snapshot` | `0.1.0` |
+| `IMAGE` | `ghcr.io/mvieitesr/hiss` | `ghcr.io/mvieitesr/hiss` | `ghcr.io/mvieitesr/hiss` |
+| `IMAGE_TAG` | vacío (inyectar SHA8) | `0.1.0-snapshot` | `0.1.0` |
+| `APP_VERSION` | vacío (inyectar SHA8) | `0.1.0-snapshot` | `0.1.0` |
 | `APP_PORT` | `8001` | `8002` | `8003` |
 | `FEATURE_LABEL_FILTERING` | `true` | `true` | `false` |
 | `POSTGRES_DB` | `hiss` | `hiss` | `hiss` |
 | `POSTGRES_USER` | `postgres` | `postgres` | `postgres` |
 | `POSTGRES_PASSWORD` | *(inyectada)* | *(inyectada)* | *(inyectada)* |
 
-En todos los casos `APP_VERSION` sigue a `IMAGE_TAG`. Cambiar el `.env` no
-cambia la imagen — el tag desplegado viene de `DEPLOY_TAG` en el workflow:
+El shell puede sobrescribir `IMAGE` y los demás valores del env-file. En CD, `IMAGE` se deriva del dueño, `IMAGE_TAG` recibe `tag@digest` y `APP_VERSION` el tag; son independientes. Por ejemplo, con `IMAGE`, `DEPLOY_TAG`, `DIGEST` y contraseña ya exportados:
 
 ```sh
-POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
+IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
   docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging pull
 ```
+
+`/version` solo refleja `APP_VERSION`, no prueba el digest ni la revisión por sí sola. `APP_TAG` no existe como variable de Compose.
 
 La base de datos de cada Environment es independiente (`pgdata` por proyecto).
 La app solo expone `APP_PORT:8000`; `5432` nunca se publica en el host para
@@ -115,6 +117,8 @@ El volumen `pgdata` es por proyecto Compose; `hiss-dev`, `hiss-staging` y
 otros:
 
 ```sh
+export POSTGRES_PASSWORD='elige-un-secreto-local'
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
 docker compose --env-file deploy/dev.env -p hiss-dev down      # mantiene pgdata
 docker compose --env-file deploy/dev.env -p hiss-dev down -v   # borra pgdata de dev
 ```
@@ -132,11 +136,11 @@ flowchart LR
         TAPP["test-app<br/>postgres:17-alpine<br/>alembic + pytest"]
     end
 
-    DEV["dev<br/>hiss-dev:8001<br/>edge / SHA8<br/>auto"] --> STAG["staging<br/>hiss-staging:8002<br/>X.Y.Z-snapshot<br/>auto"]
+    DEV["dev<br/>hiss-dev:8001<br/>SHA8<br/>auto"] --> STAG["staging<br/>hiss-staging:8002<br/>X.Y.Z-snapshot<br/>auto"]
     STAG --> PROD["prod<br/>hiss-prod:8003<br/>X.Y.Z<br/>gate aprobación"]
 
     PR["pull_request / push"] --> TAPP
-    TAPP --> DEV
+    CI["CI success: push a main"] --> DEV
 
     TAGSNAP["push tag<br/>X.Y.Z-snapshot"] --> STAG
     TAGREL["push tag<br/>X.Y.Z"] --> PROD
@@ -168,10 +172,8 @@ curl --fail http://localhost:8002/version | jq .  # staging
 curl --fail http://localhost:8003/version | jq .  # prod
 ```
 
-Los tres comparten `POSTGRES_PASSWORD` pero difieren en
-`FEATURE_LABEL_FILTERING` (`true` en `dev`/`staging`, `false` en `prod`).
-La flag se lee en `app/app/config.py` vía
-`FEATURE_LABEL_FILTERING` y se prueba en `app/tests/test_probes_version_flag.py`
+Cada Environment necesita su `POSTGRES_PASSWORD` y puede usar un valor diferente; difieren en `FEATURE_LABEL_FILTERING` (`true` en `dev`/`staging`, `false` en `prod`).
+La factory `app/app/__init__.py` lee `FEATURE_LABEL_FILTERING` mediante el parser de `app/app/config.py` y se prueba en `app/tests/test_probes_version_flag.py`
 — ver [`docs/secrets-and-config.md`](secrets-and-config.md).
 
 ## Glosario rápido
@@ -181,7 +183,7 @@ Ver `CONTEXT.md` para las definiciones canónicas; aquí los términos en uso:
 - **Environment** — destino de despliegue (`dev`/`staging`/`prod`). Cada uno
   es un proyecto Compose aislado.
 - **Release Tag** — `X.Y.Z-snapshot` (staging, móvil) o `X.Y.Z` (prod,
-  inmutable). Coincide con `IMAGE_TAG`/`APP_VERSION`.
+  inmutable por convención). En CD, es `APP_VERSION` y forma parte de `IMAGE_TAG=tag@digest`.
 - **Edge Build** — imagen de `push` a `main`, tag `SHA8`, sin Release Tag.
 - **Feature Flag** — `FEATURE_LABEL_FILTERING` por Environment sin
   reconstruir.
