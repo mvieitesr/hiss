@@ -190,7 +190,18 @@ docker ps -a | grep hiss-blue-green || echo "limpio"
 docker volume ls | grep hiss-blue-green || echo "volumen limpio"
 ```
 
-El proyecto existe para que `0.1.0`/`0.1.1` (o cualquier tag publicado en `ghcr.io/vieitesss/hiss`) se puedan `pull` sin autenticación. No se construye nada localmente y no hay job de CI para esta demo (es deliberadamente manual para que el alumno la ejecute).
+El proyecto existe para que `0.1.0`/`0.1.1` (o cualquier tag publicado en el repositorio `IMAGE` elegido) se puedan `pull`. El repositorio por defecto es público; un GHCR privado puede requerir autenticación. No se construye nada localmente y no hay job de CI para esta demo.
+
+Los tests de integración son manuales y **modifican el despliegue** (hacen deploy,
+switch y recrean el proxy). Ejecútalos solo contra una demo desechable ya
+levantada con un `COMPOSE_PROJECT_NAME` distinto de `hiss-blue-green`, manteniendo
+las mismas variables exportadas de Compose:
+
+```sh
+BLUE_GREEN_TEST_PROJECT="$COMPOSE_PROJECT_NAME" pytest deploy/blue-green/tests
+```
+
+Sin esta confirmación explícita, los tests se saltan para evitar tocar una demo existente.
 
 ## Variables de entorno
 

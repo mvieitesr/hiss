@@ -7,9 +7,18 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 DEMO = Path(__file__).resolve().parents[1]
 COMPOSE = ["docker", "compose", "-f", str(DEMO / "compose.yml")]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolated_test_project():
+    project = os.environ.get("COMPOSE_PROJECT_NAME")
+    if not project or project == "hiss-blue-green" or os.environ.get("BLUE_GREEN_TEST_PROJECT") != project:
+        pytest.skip("Set BLUE_GREEN_TEST_PROJECT to an isolated COMPOSE_PROJECT_NAME; these tests change the demo")
 
 
 def run(*args, check=True):
@@ -103,6 +112,23 @@ def test_status_uses_proxy_configuration():
     assert "Active slot: blue" in run(str(DEMO / "switch.sh"), "status").stdout
     run(str(DEMO / "switch.sh"), "switch", "green")
     assert "Active slot: green" in run(str(DEMO / "switch.sh"), "status").stdout
+
+
+def test_idempotent_switch_persists_effective_slot():
+    run(str(DEMO / "switch.sh"), "switch", "green")
+    run(
+        *COMPOSE,
+        "exec",
+        "-T",
+        "proxy",
+        "sh",
+        "-c",
+        "ACTIVE_SLOT=blue envsubst '${ACTIVE_SLOT}' < /etc/nginx/templates/nginx.conf.template "
+        "> /etc/nginx/conf.d/default.conf && nginx -s reload",
+    )
+    run(str(DEMO / "switch.sh"), "switch", "blue")
+    run(*COMPOSE, "up", "-d", "--no-deps", "--force-recreate", "proxy")
+    assert "Active slot: blue" in run(str(DEMO / "switch.sh"), "status").stdout
 
 
 def test_script_requires_password_for_compose():

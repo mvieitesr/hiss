@@ -131,6 +131,8 @@ do_switch() {
   local current
   current="$(get_active)"
   if [ "$current" = "$target" ]; then
+    # Reconcile the startup preference even if the proxy was changed externally.
+    docker compose -f "$COMPOSE_FILE" exec -T proxy sh -c "printf '%s\\n' '$target' > /var/lib/hiss-blue-green/active-slot"
     printf "Already on ${YELLOW}%s${RESET} — no change (idempotent)\n" "$target"
     return 0
   fi
