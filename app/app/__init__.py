@@ -102,22 +102,15 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     app.register_blueprint(api_bp)
 
-    # Ensure API 404s return JSON (fallback for unknown /api/v1/* routes)
-    # The blueprint's errorhandler covers blueprint routes, but we also
-    # add an app-level handler for JSON on API prefix.
-    from flask import jsonify, request
+    # Return JSON for app-level 404s and 405s, including unknown API routes.
+    from flask import jsonify
 
     @app.errorhandler(404)
     def handle_404(e):
-        # Only for API prefix return JSON, otherwise default HTML may still be useful
-        if request.path.startswith("/api/"):
-            return jsonify({"error": "not_found", "message": "not found"}), 404
         return jsonify({"error": "not_found", "message": "not found"}), 404
 
     @app.errorhandler(405)
     def handle_405(e):
-        if request.path.startswith("/api/"):
-            return jsonify({"error": "method_not_allowed", "message": "method not allowed"}), 405
         return jsonify({"error": "method_not_allowed", "message": "method not allowed"}), 405
 
     # Probes and version (Node 4)

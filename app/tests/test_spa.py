@@ -56,8 +56,17 @@ def test_project_delete_does_not_embed_key_in_javascript(client):
     assert "onclick=\"app.handleDeleteProject('" not in script
 
 
-def test_unknown_api_returns_404_json(client):
-    r = client.get("/api/v1/nonexistent")
+@pytest.mark.parametrize("path", ["/api/v1/nonexistent", "/static/nonexistent"])
+def test_unknown_route_returns_404_json(client, path):
+    r = client.get(path)
     assert r.status_code == 404
     assert r.is_json
-    assert r.get_json()["error"] == "not_found"
+    assert r.get_json() == {"error": "not_found", "message": "not found"}
+
+
+@pytest.mark.parametrize("path", ["/api/v1/nonexistent", "/static/app.js"])
+def test_disallowed_method_returns_405_json(client, path):
+    r = client.post(path)
+    assert r.status_code == 405
+    assert r.is_json
+    assert r.get_json() == {"error": "method_not_allowed", "message": "method not allowed"}
