@@ -1,5 +1,7 @@
 import os
 import subprocess
+from pathlib import Path
+
 import pytest
 from sqlalchemy import text
 
@@ -20,7 +22,8 @@ def _alembic_upgrade():
         url = f"{url}{sep}options=-c%20lock_timeout%3D5000%20-c%20statement_timeout%3D30000"
         env["DATABASE_URL"] = url
         os.environ["DATABASE_URL"] = url
-    subprocess.run(["alembic", "-c", "app/alembic.ini", "upgrade", "head"], env=env, check=True)
+    config = Path(__file__).resolve().parents[1] / "alembic.ini"
+    subprocess.run(["alembic", "-c", str(config), "upgrade", "head"], env=env, check=True)
     yield
 
 
@@ -53,23 +56,7 @@ def app(base_app):
             conn.execute(text("DELETE FROM issues"))
             conn.execute(text("DELETE FROM labels"))
             conn.execute(text("DELETE FROM projects"))
-    # Snapshot config for restoration
-    orig_flag = base_app.config.get("FEATURE_LABEL_FILTERING")
-    orig_version = base_app.config.get("APP_VERSION")
-    orig_env_flag = os.getenv("FEATURE_LABEL_FILTERING")
-    orig_env_version = os.getenv("APP_VERSION")
     yield base_app
-    # Restore config and env
-    base_app.config["FEATURE_LABEL_FILTERING"] = orig_flag
-    base_app.config["APP_VERSION"] = orig_version
-    if orig_env_flag is None:
-        os.environ.pop("FEATURE_LABEL_FILTERING", None)
-    else:
-        os.environ["FEATURE_LABEL_FILTERING"] = orig_env_flag
-    if orig_env_version is None:
-        os.environ.pop("APP_VERSION", None)
-    else:
-        os.environ["APP_VERSION"] = orig_env_version
     # Clean after test
     with base_app.app_context():
         try:
