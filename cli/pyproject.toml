@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools==84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,9 +9,9 @@ description = "hiss CLI — Typer + httpx client for the hiss API"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "typer>=0.12.0",
-    "httpx>=0.24.0",
-    "rich>=13.0.0",
+    "typer==0.27.3",
+    "httpx==0.28.1",
+    "rich==15.0.0",
 ]
 
 [project.scripts]
