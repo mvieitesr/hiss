@@ -5,7 +5,3 @@ __pycache__/
 .env
 *.egg-info/
 .pytest_cache/
-# blue-green demo — local state is not committed
-deploy/blue-green/.active-slot
-deploy/blue-green/nginx.conf
-deploy/blue-green/.rendered.conf
