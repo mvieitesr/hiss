@@ -25,7 +25,7 @@ services:
     # Intentionally no ports published — avoids collision with host postgres on 5432
 
   app:
-    image: ${IMAGE}:${IMAGE_TAG}
+    image: ${IMAGE}:${IMAGE_TAG:?must be set}
     build:
       context: ../app
       dockerfile: Dockerfile
@@ -36,7 +36,7 @@ services:
       - "${APP_PORT:-8001}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}
-      APP_VERSION: ${APP_VERSION:-dev}
+      APP_VERSION: ${APP_VERSION:?must be set}
       FEATURE_LABEL_FILTERING: ${FEATURE_LABEL_FILTERING:-true}
       # Pass through DB vars for clarity / 12-factor completeness
       POSTGRES_DB: ${POSTGRES_DB:-hiss}

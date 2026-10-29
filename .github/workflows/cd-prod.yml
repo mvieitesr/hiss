@@ -7,10 +7,7 @@ on:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
 
-permissions:
-  contents: read
-  packages: write
-  actions: read
+permissions: {}
 
 concurrency:
   group: cd-prod
@@ -19,9 +16,16 @@ concurrency:
 jobs:
   ci-gate:
     name: Require green CI
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
+      - name: Check out full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Wait for CI success on this commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -29,8 +33,12 @@ jobs:
         run: |
           set -euo pipefail
           sha="$GITHUB_SHA"
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "Commit $sha is not reachable from main" >&2
+            exit 1
+          fi
           for _ in $(seq 1 60); do
-            row="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$sha" --limit 1 --json status,conclusion --jq '.[0] | "\(.status):\(.conclusion)"')"
+            row="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$sha" --event push --branch main --limit 1 --json status,conclusion --jq '.[0] | "\(.status):\(.conclusion)"')"
             case "$row" in
               completed:success) exit 0 ;;
               completed:failure|completed:cancelled|completed:timed_out|completed:startup_failure)
@@ -52,27 +60,33 @@ jobs:
     timeout-minutes: 2
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      sha8: ${{ steps.tag.outputs.sha8 }}
     steps:
       - name: Set Release Tag
         id: tag
         shell: bash
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "sha8=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build and push prod image
+    name: Promote prod image
     needs: prepare
     uses: ./.github/workflows/_build-push.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
-    secrets: inherit
+      source_tag: ${{ needs.prepare.outputs.sha8 }}
+      ref: ${{ github.sha }}
     permissions:
       contents: read
       packages: write
 
   deploy:
     name: Deploy prod
+    permissions:
+      contents: read
     needs:
       - prepare
       - build
@@ -82,6 +96,8 @@ jobs:
       name: prod
     env:
       DEPLOY_TAG: ${{ needs.prepare.outputs.tag }}
+      IMAGE: ${{ needs.build.outputs.image }}
+      DIGEST: ${{ needs.build.outputs.digest }}
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
     steps:
       - name: Check out repository
@@ -90,14 +106,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
+          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
             docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod pull
       - name: Start prod services
         shell: bash
         run: |
           set -euo pipefail
-          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
-            docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
+          POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
+            docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d --no-build --pull never
 
   smoke-test:
     name: Smoke test prod
