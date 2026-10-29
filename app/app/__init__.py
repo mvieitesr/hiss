@@ -43,7 +43,6 @@ def create_app(test_config: dict | None = None) -> Flask:
     raw_uri = app.config["DATABASE_URL"] or "sqlite:///:memory:"
     app.config["SQLALCHEMY_DATABASE_URI"] = _to_psycopg_uri(raw_uri)
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["SQLALCHEMY_EXPIRE_ON_COMMIT"] = False
 
     # Allow tests / callers to override (e.g. in-memory DB)
     if test_config:
