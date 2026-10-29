@@ -214,9 +214,9 @@ do_deploy() {
   # fallback to normal pull if the image is remote and public.
   if [ "$inactive" = "blue" ]; then
     # shellcheck disable=SC2090
-    BLUE_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d --pull never "$inactive" || BLUE_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d "$inactive"
+    MIGRATE_TAG="$tag" BLUE_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d --pull never "$inactive" || MIGRATE_TAG="$tag" BLUE_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d "$inactive"
   else
-    GREEN_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d --pull never "$inactive" || GREEN_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d "$inactive"
+    MIGRATE_TAG="$tag" GREEN_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d --pull never "$inactive" || MIGRATE_TAG="$tag" GREEN_TAG="$tag" docker compose -f "$COMPOSE_FILE" up -d "$inactive"
   fi
 
   # Wait for the newly deployed slot to be healthy

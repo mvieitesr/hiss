@@ -25,11 +25,23 @@ services:
       start_period: 5s
     # No ports published — DB is only reachable via internal DNS `db:5432`
 
-  blue:
-    image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${BLUE_TAG:-0.1.0}
+  # Run migrations once before either slot starts. The deployed tag can override
+  # MIGRATE_TAG so its migrations run before replacing the inactive slot.
+  migrate:
+    image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${MIGRATE_TAG:-${GREEN_TAG:-0.1.0}}
+    entrypoint: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}
+
+  blue:
+    image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${BLUE_TAG:-0.1.0}
+    entrypoint: ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "app.wsgi:app"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}
       APP_VERSION: ${BLUE_TAG:-0.1.0}
@@ -48,9 +60,10 @@ services:
 
   green:
     image: ${IMAGE:-ghcr.io/vieitesss/hiss}:${GREEN_TAG:-0.1.0}
+    entrypoint: ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "app.wsgi:app"]
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}
       APP_VERSION: ${GREEN_TAG:-0.1.0}

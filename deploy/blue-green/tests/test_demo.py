@@ -1,5 +1,6 @@
 """Manual integration checks for an isolated, running blue-green demo."""
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -20,3 +21,13 @@ def health(service):
 
 def test_proxy_is_healthy():
     assert health("proxy") == "healthy"
+
+
+def test_slots_wait_for_a_single_migration_job():
+    config = json.loads(run(*COMPOSE, "config", "--format", "json").stdout)
+    services = config["services"]
+    assert "migrate" in services
+    for slot in ("blue", "green"):
+        assert services[slot]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+        assert services[slot]["entrypoint"][0] == "gunicorn"
+    assert services["migrate"]["entrypoint"][0] == "alembic"
