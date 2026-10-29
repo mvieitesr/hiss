@@ -13,7 +13,6 @@ import httpx
 import typer
 
 DEFAULT_URL = "http://localhost:8000"
-API_PREFIX = "/api/v1"
 
 
 def path_segment(value: str | int) -> str:
@@ -96,13 +95,3 @@ def handle_request_error(exc: Exception, base_url: str) -> None:
     """Map httpx transport errors (ConnectError, Timeout, etc.) to stderr + Exit(1)."""
     typer.echo(f"Error: could not connect to {base_url}: {exc}", err=True)
     raise typer.Exit(code=1)
-
-
-def api_url(base_url: str, path: str) -> str:
-    """Build full API URL (alternative helper when not using Client base_url)."""
-    base = get_base_url(base_url).rstrip("/")
-    if not path.startswith("/"):
-        path = "/" + path
-    if not path.startswith(API_PREFIX):
-        path = API_PREFIX + path
-    return base + path
