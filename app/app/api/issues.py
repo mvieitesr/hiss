@@ -80,6 +80,9 @@ def create_issue_for_project(key: str):
     title = data.get("title")
     if not title or not isinstance(title, str) or not title.strip():
         return bad_request("title is required")
+    title = title.strip()
+    if len(title) > 300:
+        return bad_request("title must be at most 300 characters")
 
     description = data.get("description", "")
     if description is None:
@@ -102,7 +105,7 @@ def create_issue_for_project(key: str):
 
     issue = Issue(
         project_id=project.id,
-        title=title.strip(),
+        title=title,
         description=description,
         status=status_val,
         priority=priority,
@@ -149,7 +152,10 @@ def update_issue(issue_id: int):
         title = data["title"]
         if not title or not isinstance(title, str) or not title.strip():
             return bad_request("title must be a non-empty string")
-        issue.title = title.strip()
+        title = title.strip()
+        if len(title) > 300:
+            return bad_request("title must be at most 300 characters")
+        issue.title = title
 
     if "description" in data:
         desc = data["description"]

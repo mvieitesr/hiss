@@ -27,6 +27,8 @@ def create_label():
     if not name or not isinstance(name, str) or not name.strip():
         return bad_request("name is required")
     name = name.strip()
+    if len(name) > 100:
+        return bad_request("name must be at most 100 characters")
 
     if Label.query.filter_by(name=name).first() is not None:
         return conflict(f"label '{name}' already exists")

@@ -84,6 +84,31 @@ def test_json_fields_reject_wrong_types(client, api_resources, method, path, pay
     assert isinstance(response.get_json()["message"], str)
 
 
+@pytest.mark.parametrize(
+    "method,path,payload,field,limit",
+    [
+        ("POST", "/api/v1/projects", {"name": "Project"}, "key", 50),
+        ("POST", "/api/v1/projects", {"key": "OTHER"}, "name", 200),
+        ("POST", "/api/v1/labels", {}, "name", 100),
+        ("POST", "/api/v1/projects/VALID/issues", {}, "title", 300),
+        ("PATCH", "/api/v1/issues/{issue_id}", {}, "title", 300),
+    ],
+)
+def test_text_limits_apply_after_trim(client, api_resources, method, path, payload, field, limit):
+    path = path.format(**api_resources)
+    accepted = client.open(path, method=method, json={**payload, field: "  " + "x" * limit + "  "})
+    assert accepted.status_code == (200 if method == "PATCH" else 201)
+    assert accepted.get_json()[field] == "x" * limit
+
+    rejected = client.open(path, method=method, json={**payload, field: "  " + "x" * (limit + 1)})
+    assert rejected.status_code == 400
+    assert rejected.is_json
+    assert rejected.get_json()["error"] == "bad_request"
+    assert isinstance(rejected.get_json()["message"], str)
+    if method == "PATCH":
+        assert client.get(path).get_json()[field] == "x" * limit
+
+
 def test_issue_patch_allows_empty_object_and_null_description(client, api_resources):
     path = f"/api/v1/issues/{api_resources['issue_id']}"
     assert client.patch(path, json={}).status_code == 200
