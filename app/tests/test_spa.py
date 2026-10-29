@@ -33,6 +33,11 @@ def test_vendored_static_assets(client):
     assert "text/css" in r_app_css.content_type
 
 
+def test_project_delete_does_not_embed_key_in_javascript(client):
+    script = client.get("/static/app.js").text
+    assert 'onclick="app.handleDeleteProject(\'' not in script
+
+
 def test_unknown_api_returns_404_json(client):
     r = client.get("/api/v1/nonexistent")
     assert r.status_code == 404

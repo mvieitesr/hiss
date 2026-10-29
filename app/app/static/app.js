@@ -308,7 +308,7 @@ function renderProjectsList(projects) {
           </div>
           <div class="project-list-meta">
             <span class="project-open-badge">${openCount} ${issueLabel}</span>
-            <button type="button" class="btn-row-action" title="Delete project" aria-label="Delete project ${escapeHtml(project.key)}" onclick="app.handleDeleteProject('${escapeHtml(project.key)}', event)">
+            <button type="button" class="btn-row-action" title="Delete project" aria-label="Delete project ${escapeHtml(project.key)}" data-project-key="${escapeHtml(project.key)}" onclick="app.handleDeleteProject(this.dataset.projectKey, event)">
               ${icon('trash', 'icon icon-xs')}
             </button>
           </div>
