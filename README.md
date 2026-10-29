@@ -127,6 +127,8 @@ que un resultado rojo de CI bloquee los merges.
 
 ## Despliegue con Docker Compose
 
+Para construir y publicar manualmente una imagen en el GHCR de tu fork, ver [Local Stack](docs/environments.md#local-stack-manual-con-ghcr-del-fork).
+
 La imagen de la aplicación se referencia como `${IMAGE}:${IMAGE_TAG}`. Cada
 archivo `deploy/*.env` fija `IMAGE=ghcr.io/mvieitesr/hiss` por defecto; puedes
 sobreescribir `IMAGE` desde el shell para usar otro registro. Los workflows

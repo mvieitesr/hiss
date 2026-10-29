@@ -39,6 +39,39 @@ docker compose --env-file deploy/prod.env -p hiss-prod ps
 
 El responsable del repositorio publicará `0.1.0-snapshot` y `0.1.0` en `ghcr.io/mvieitesr/hiss` antes de la práctica; usa un SHA8 publicado para dev. Para un fork exporta `IMAGE=ghcr.io/<dueño-en-minúsculas>/hiss`. Consulta [`docs/setup.md`](setup.md) para la guía completa.
 
+## Local Stack manual con GHCR del fork
+
+Este recorrido es independiente del CD: construye y publica una imagen manual, no el digest que construye `cd-dev`. Necesitas Docker, un checkout limpio en el commit elegido, un paquete GHCR accesible y un token clásico con permisos de paquetes del propietario. No publiques credenciales ni las introduzcas en el historial. Sustituye `tu-usuario` por el dueño del fork en minúsculas:
+
+```bash
+export OWNER=tu-usuario
+export IMAGE="ghcr.io/$OWNER/hiss"
+export IMAGE_TAG="$(git rev-parse --short=8 HEAD)-manual"
+export APP_VERSION="$IMAGE_TAG"
+export POSTGRES_PASSWORD='elige-un-secreto-local' APP_PORT=8011
+# El token se lee sin eco; usa configuración Docker temporal. Docker puede usar
+# un gestor de credenciales del sistema si está disponible.
+export DOCKER_CONFIG="$(mktemp -d)"
+read -r -s -p 'GHCR token: ' GHCR_TOKEN; echo
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$OWNER" --password-stdin
+unset GHCR_TOKEN
+
+docker build -f app/Dockerfile -t "$IMAGE:$IMAGE_TAG" app/
+docker push "$IMAGE:$IMAGE_TAG"
+docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-localstack pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-localstack up -d --no-build --pull never --wait --wait-timeout 60
+curl --fail http://localhost:8011/healthz
+curl --fail http://localhost:8011/readyz
+curl --fail http://localhost:8011/version
+# Borra la configuración temporal de Docker cuando termines los pulls.
+rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG
+# down -v elimina también la base de este proyecto desechable:
+docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-localstack down -v
+unset OWNER IMAGE IMAGE_TAG APP_VERSION POSTGRES_PASSWORD APP_PORT
+```
+
+La imagen manual puede tener un digest distinto al de CD aunque comparta fuente. El sufijo `-manual` evita pisar el SHA8 de CD; la promoción de CD también exige la etiqueta OCI de revisión generada por su build. Revisa los permisos y la visibilidad del paquete como indica [`docs/setup.md`](setup.md). El token y la configuración Docker temporal son sensibles mientras existan.
+
 ## Configuración por Environment
 
 Los tres `deploy/*.env` están versionados y contienen solo configuración no
