@@ -2,6 +2,7 @@ import os
 
 from flask import Flask
 
+from . import config
 from .extensions import db
 
 # Global shared engine for test suite stability (Node 6 flakiness fix).
@@ -9,17 +10,6 @@ from .extensions import db
 # per-app engines that interleave TRUNCATE/DELETE with in-flight requests.
 _shared_engine = None
 _shared_uri = None
-
-
-def _parse_feature_flag(value: str | None) -> bool:
-    if value is None:
-        return True
-    lower = value.strip().lower()
-    if lower in ("true", "1", "yes", "on"):
-        return True
-    if lower in ("false", "0", "no", "off"):
-        return False
-    return True
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -36,7 +26,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     # toggle FEATURE_LABEL_FILTERING by recreating the app.
     app.config["DATABASE_URL"] = os.getenv("DATABASE_URL", "")
     app.config["APP_VERSION"] = os.getenv("APP_VERSION", "dev")
-    app.config["FEATURE_LABEL_FILTERING"] = _parse_feature_flag(
+    app.config["FEATURE_LABEL_FILTERING"] = config._parse_feature_flag(
         os.getenv("FEATURE_LABEL_FILTERING", "true")
     )
 
