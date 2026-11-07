@@ -17,9 +17,10 @@ def step(name, job, step_name):
     return next(s for s in workflow(name)["jobs"][job]["steps"] if s["name"] == step_name)
 
 
-def run_script(script, *, env=None, functions=""):
+def run_script(script, *, env=None, functions="", cwd=None):
     return subprocess.run(
         ["bash", "-c", f"{functions}\n{script}"],
+        cwd=cwd,
         env={**os.environ, **(env or {})},
         text=True,
         capture_output=True,
@@ -416,6 +417,33 @@ def test_ci_validates_all_workflows_and_environment_configs():
         assert f"deploy/{environment}.env" in result.stdout
     filters = step("ci.yml", "changes", "Filter changed paths")["with"]["filters"]
     assert ".github/workflows/**" in filters and "deploy/**" in filters and "compose.yml" in filters
+
+
+def test_ci_rejects_tracked_secrets(tmp_path):
+    script = step("ci.yml", "lint-pipeline", "Check no secret is tracked")["run"]
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "init", "-q"], cwd=tmp_path, check=True)
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / "secret.env.example").write_text("POSTGRES_PASSWORD=\n")
+    (deploy / "dev.env").write_text("COMPOSE_PROJECT_NAME=hiss-dev\nPOSTGRES_PASSWORD=\n")
+    subprocess.run([*git, "add", "-A"], cwd=tmp_path, check=True)
+    assert run_script(script, cwd=tmp_path).returncode == 0
+
+    (deploy / "dev.secret.env").write_text("POSTGRES_PASSWORD=real\n")
+    subprocess.run([*git, "add", "-f", "deploy/dev.secret.env"], cwd=tmp_path, check=True)
+    result = run_script(script, cwd=tmp_path)
+    assert result.returncode == 1
+    assert "A secret file is tracked" in result.stderr
+    subprocess.run(
+        [*git, "rm", "-q", "--cached", "deploy/dev.secret.env"], cwd=tmp_path, check=True
+    )
+
+    (deploy / "dev.env").write_text("POSTGRES_PASSWORD=real\n")
+    subprocess.run([*git, "add", "deploy/dev.env"], cwd=tmp_path, check=True)
+    result = run_script(script, cwd=tmp_path)
+    assert result.returncode == 1
+    assert "POSTGRES_PASSWORD with a value in a tracked env file" in result.stderr
 
 
 def test_cd_limits_package_writes_and_actions_reads_to_required_jobs():

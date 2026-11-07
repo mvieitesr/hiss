@@ -5,3 +5,9 @@ __pycache__/
 .env
 *.egg-info/
 .pytest_cache/
+
+# Per-environment config is committed; any other *.env under deploy/ is not
+deploy/*.env
+!deploy/dev.env
+!deploy/staging.env
+!deploy/prod.env

@@ -55,6 +55,16 @@ jobs:
         uses: actions/checkout@v7
       - name: Validate workflows
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
+      - name: Check no secret is tracked
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files 'deploy/*.secret.env' | grep -q .; then
+            echo "A secret file is tracked" >&2; exit 1
+          fi
+          if git grep -nE '^POSTGRES_PASSWORD=.' -- 'deploy/*.env'; then
+            echo "POSTGRES_PASSWORD with a value in a tracked env file" >&2; exit 1
+          fi
       - name: Validate Compose configurations
         shell: bash
         run: |
