@@ -133,12 +133,13 @@ de datos.
 
 ## Aislamiento con Compose
 
-`deploy/compose.yml` declara `name: ${COMPOSE_PROJECT_NAME:-hiss-dev}` y dos
-servicios:
+`deploy/compose.yml` declara `name: ${COMPOSE_PROJECT_NAME:?...}` y dos
+servicios. El nombre del proyecto no tiene valor por defecto: un comando sin
+`--env-file` falla en lugar de actuar sobre `hiss-dev` (y su volumen `pgdata`).
 
 - `db` — `postgres:17-alpine`, `healthcheck: pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hiss}`,
   volumen `pgdata`, sin `ports` publicados.
-- `app` — `image: ${IMAGE}:${IMAGE_TAG}`, `build: context: ../app`,
+- `app` — `image: ${IMAGE:?...}:${IMAGE_TAG:?...}`, `build: context: ../app`,
   `depends_on: db: condition: service_healthy`,
   `ports: ["${APP_PORT:-8001}:8000"]`,
   `DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}`,

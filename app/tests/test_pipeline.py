@@ -148,6 +148,34 @@ def test_dev_requires_explicit_sha_tag_and_version():
     assert subprocess.run(command, cwd=ROOT, env=env, capture_output=True).returncode == 0
 
 
+def test_compose_requires_environment_identity():
+    env = {
+        **os.environ,
+        "POSTGRES_PASSWORD": "dummy",
+        "IMAGE_TAG": "789749c4",
+        "APP_VERSION": "789749c4",
+    }
+    for compose in ("compose.yml", "deploy/compose.yml"):
+        command = [
+            "docker",
+            "compose",
+            "-f",
+            compose,
+            "--env-file",
+            "deploy/dev.env",
+            "config",
+            "-q",
+        ]
+        # An empty shell value overrides the env file and trips the `:?` check.
+        for missing in ("COMPOSE_PROJECT_NAME", "IMAGE"):
+            result = subprocess.run(
+                command, cwd=ROOT, env={**env, missing: ""}, text=True, capture_output=True
+            )
+            assert result.returncode != 0, compose
+            assert missing in result.stderr, compose
+        assert subprocess.run(command, cwd=ROOT, env=env, capture_output=True).returncode == 0
+
+
 def test_fork_publishes_to_lowercase_owner(tmp_path):
     script = step("_build-push.yml", "build", "Resolve image")["run"]
     output = tmp_path / "output"

@@ -1,11 +1,12 @@
 # Hiss — parameterized compose for three Environments (RA1: build once, deploy anywhere)
 # Teaching demo: multi-service, healthchecks, named volume, env-file config.
-# Usage:
-#   POSTGRES_PASSWORD=... docker compose --env-file deploy/dev.env up -d
-#   POSTGRES_PASSWORD=... docker compose --env-file deploy/staging.env -p hiss-staging up -d
-#   POSTGRES_PASSWORD=... docker compose --env-file deploy/prod.env -p hiss-prod up -d
-# Project name isolation via COMPOSE_PROJECT_NAME in env file or -p flag.
-name: ${COMPOSE_PROJECT_NAME:-hiss-dev}
+# Usage (the password comes from deploy/<env>.secret.env, see deploy/secret.env.example):
+#   docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
+#   docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
+#   docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+# COMPOSE_PROJECT_NAME and IMAGE are mandatory (set in deploy/<env>.env): a command without the
+# environment file fails instead of acting on another environment's containers and volumes.
+name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be set (see deploy/<env>.env)}
 
 services:
   db:
@@ -25,7 +26,7 @@ services:
     # Intentionally no ports published — avoids collision with host postgres on 5432
 
   app:
-    image: ${IMAGE}:${IMAGE_TAG:?must be set}
+    image: ${IMAGE:?IMAGE must be set}:${IMAGE_TAG:?IMAGE_TAG must be set}
     build:
       context: ../app
       dockerfile: Dockerfile
