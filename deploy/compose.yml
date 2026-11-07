@@ -39,10 +39,6 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?must be set}@db:5432/${POSTGRES_DB:-hiss}
       APP_VERSION: ${APP_VERSION:?must be set}
       FEATURE_LABEL_FILTERING: ${FEATURE_LABEL_FILTERING:-true}
-      # Pass through DB vars for clarity / 12-factor completeness
-      POSTGRES_DB: ${POSTGRES_DB:-hiss}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?must be set}
     healthcheck:
       # python is guaranteed in python:3.13-slim; no extra tools needed
       test: ["CMD-SHELL", "python -c 'import urllib.request,sys; urllib.request.urlopen(\"http://localhost:8000/healthz\",timeout=3); sys.exit(0)'"]
