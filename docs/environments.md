@@ -22,33 +22,43 @@ fiel a la práctica de CI moderna y evita mantener una cuarta pila
 idéntica solo para ejecutar `pytest`.
 
 Cada despliegue persistente usa el mismo `deploy/compose.yml` con distinto
-`--env-file` y `COMPOSE_PROJECT_NAME`. Los tres pueden coexistir en el
-mismo host:
+`deploy/<env>.env` y `COMPOSE_PROJECT_NAME`. En local, añade un segundo
+`--env-file deploy/<env>.secret.env`. Antes de ejecutar estos comandos,
+[copia la plantilla, aplica `chmod 600` y rellena los tres secretos](secrets-and-config.md#en-local).
+Pasa ambos ficheros en cada comando: la tolerancia a la ausencia del secreto
+varía según la versión de Compose; `config`, `pull` y `up` siempre lo necesitan.
+Los tres despliegues pueden coexistir en el mismo host:
 
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
 unset IMAGE_TAG APP_VERSION  # usa los tags de cada env-file para staging/prod
-docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging up -d
-docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
-IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" docker compose --env-file deploy/dev.env -p hiss-dev ps
-docker compose --env-file deploy/staging.env -p hiss-staging ps
-docker compose --env-file deploy/prod.env -p hiss-prod ps
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
+docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging ps
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod ps
 ```
 
 El responsable del repositorio publicará `0.1.0-snapshot` y `0.1.0` en `ghcr.io/mvieitesr/hiss` antes de la práctica; usa un SHA8 publicado para dev. Para un fork exporta `IMAGE=ghcr.io/<dueño-en-minúsculas>/hiss`. Consulta [`docs/setup.md`](setup.md) para la guía completa.
 
+Para comprobar el recorrido sin tags publicados, si ya tienes la imagen local
+`ghcr.io/mvieitesr/hiss:verify`, usa `export IMAGE_TAG=verify APP_VERSION=verify`
+en los tres Environments en lugar de los exports de SHA8 y de `unset IMAGE_TAG APP_VERSION`.
+Omite los `pull` y añade `--pull never` a cada `up`; conserva ambos env-files.
+`/version` devolverá `verify`, no los tags de ejemplo. Esta comprobación local
+no valida la publicación en GHCR ni la promoción de CD.
+
 ## Local Stack manual con GHCR del fork
 
-Este recorrido es independiente del CD: construye y publica una imagen manual, no el digest que construye `cd-dev`. Necesitas Docker, un checkout limpio en el commit elegido, un paquete GHCR accesible y un token clásico con permisos de paquetes del propietario. No publiques credenciales ni las introduzcas en el historial. Sustituye `tu-usuario` por el dueño del fork en minúsculas:
+Este recorrido es independiente del CD: construye y publica una imagen manual, no el digest que construye `cd-dev`. Necesitas Docker, un checkout limpio en el commit elegido, un paquete GHCR accesible y un token clásico con permisos de paquetes del propietario. No publiques credenciales ni las introduzcas en el historial. Prepara `deploy/dev.secret.env` [copiando la plantilla y aplicando `chmod 600`](secrets-and-config.md#en-local); si su valor contiene `$`, usa comillas simples en el fichero. Sustituye `tu-usuario` por el dueño del fork en minúsculas:
 
 ```bash
 export OWNER=tu-usuario
 export IMAGE="ghcr.io/$OWNER/hiss"
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)-manual"
 export APP_VERSION="$IMAGE_TAG"
-export POSTGRES_PASSWORD='elige-un-secreto-local' APP_PORT=8011
+export APP_PORT=8011
 # El token se lee sin eco; usa configuración Docker temporal. Docker puede usar
 # un gestor de credenciales del sistema si está disponible.
 export DOCKER_CONFIG="$(mktemp -d)"
@@ -58,25 +68,25 @@ unset GHCR_TOKEN
 
 docker build -f app/Dockerfile -t "$IMAGE:$IMAGE_TAG" app/
 docker push "$IMAGE:$IMAGE_TAG"
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-localstack pull
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-localstack up -d --no-build --pull never --wait --wait-timeout 60
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-localstack pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-localstack up -d --no-build --pull never --wait --wait-timeout 60
 curl --fail http://localhost:8011/healthz
 curl --fail http://localhost:8011/readyz
 curl --fail http://localhost:8011/version
 # Borra la configuración temporal de Docker cuando termines los pulls.
 rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG
 # down -v elimina también la base de este proyecto desechable:
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-localstack down -v
-unset OWNER IMAGE IMAGE_TAG APP_VERSION POSTGRES_PASSWORD APP_PORT
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-localstack down -v
+unset OWNER IMAGE IMAGE_TAG APP_VERSION APP_PORT
 ```
 
 La imagen manual puede tener un digest distinto al de CD aunque comparta fuente. El sufijo `-manual` evita pisar el SHA8 de CD; la promoción de CD también exige la etiqueta OCI de revisión generada por su build. Revisa los permisos y la visibilidad del paquete como indica [`docs/setup.md`](setup.md). El token y la configuración Docker temporal son sensibles mientras existan.
 
 ## Configuración por Environment
 
-Los tres `deploy/*.env` están versionados y contienen solo configuración no
-secreta. La contraseña nunca aparece en ellos — se inyecta desde
-`secrets.POSTGRES_PASSWORD` en cada `cd-*.yml` y `rollback.yml`.
+Los tres `deploy/<env>.env` están versionados y contienen solo configuración no
+secreta. La contraseña local va en `deploy/<env>.secret.env`, ignorado por Git;
+en cada `cd-*.yml` y `rollback.yml` se inyecta desde `secrets.POSTGRES_PASSWORD`.
 
 | Variable | `dev` (`deploy/dev.env`) | `staging` (`deploy/staging.env`) | `prod` (`deploy/prod.env`) |
 | --- | --- | --- | --- |
@@ -151,10 +161,10 @@ El volumen `pgdata` es por proyecto Compose; `hiss-dev`, `hiss-staging` y
 otros:
 
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
+# Usa deploy/dev.secret.env preparado al inicio del recorrido
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose --env-file deploy/dev.env -p hiss-dev down      # mantiene pgdata
-docker compose --env-file deploy/dev.env -p hiss-dev down -v   # borra pgdata de dev
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down      # mantiene pgdata
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down -v   # borra pgdata de dev
 ```
 
 > Nota: la demo blue-green (`deploy/blue-green/compose.yml`) usa

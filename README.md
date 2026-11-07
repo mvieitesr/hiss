@@ -34,11 +34,11 @@ flowchart TB
     class BG demo
 ```
 
-Cada Environment (`dev` `:8001`, `staging` `:8002`, `prod` `:8003`) usa el mismo `deploy/compose.yml` con distinto `--env-file`. El servidor Flask de desarrollo corre en `8000` (`flask --app app.app:create_app run --port 8000`) y no colisiona con ningún Environment. Compose no publica `5432` en el host.
+Cada Environment (`dev` `:8001`, `staging` `:8002`, `prod` `:8003`) usa el mismo `deploy/compose.yml` con dos `--env-file`: `deploy/<env>.env` para configuración y `deploy/<env>.secret.env` para la contraseña local. El servidor Flask de desarrollo corre en `8000` (`flask --app app.app:create_app run --port 8000`) y no colisiona con ningún Environment. Compose no publica `5432` en el host.
 
 ## Inicio rápido en 5 minutos
 
-Requisitos: runner autoalojado en `Idle`, Environments y paquete preparados (ver [`docs/setup.md`](docs/setup.md)). Antes de cortar un Release Tag, espera al CI de `push` a `main` y a que `cd-dev` publique la imagen SHA8 de ese mismo commit. Usa tu repo en los comandos `gh`.
+Requisitos: runner autoalojado en `Idle`, Environments y paquete preparados (ver [`docs/setup.md`](docs/setup.md)). Para los comandos Compose locales, prepara `deploy/dev.secret.env` como indica [Credencial de Postgres](#credencial-de-postgres). Antes de cortar un Release Tag, espera al CI de `push` a `main` y a que `cd-dev` publique la imagen SHA8 de ese mismo commit. Usa tu repo en los comandos `gh`.
 
 ```sh
 # 0. Verifica el runner (debe mostrar Idle en Settings → Actions → Runners)
@@ -70,11 +70,10 @@ gh run list --workflow cd-dev.yml --limit 3
 gh run watch --exit-status
 curl --fail http://localhost:8001/version | jq .  # {"version":"<SHA8>"}
 
-# 5. Observabilidad básica: Compose también necesita estas variables en ps/logs
-export POSTGRES_PASSWORD='elige-el-secreto-local'
+# 5. Observabilidad básica: pasa ambos env-files también en ps/logs
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose --env-file deploy/dev.env -p hiss-dev ps
-docker compose --env-file deploy/dev.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
 curl --fail http://localhost:8001/readyz | jq .
 ```
 
@@ -130,7 +129,7 @@ que un resultado rojo de CI bloquee los merges.
 Para construir y publicar manualmente una imagen en el GHCR de tu fork, ver [Local Stack](docs/environments.md#local-stack-manual-con-ghcr-del-fork).
 
 La imagen de la aplicación se referencia como `${IMAGE}:${IMAGE_TAG}`. Cada
-archivo `deploy/*.env` fija `IMAGE=ghcr.io/mvieitesr/hiss` por defecto; puedes
+archivo `deploy/<env>.env` fija `IMAGE=ghcr.io/mvieitesr/hiss` por defecto; puedes
 sobreescribir `IMAGE` desde el shell para usar otro registro. Los workflows
 usan `ghcr.io/<dueño-del-repo-en-minúsculas>/hiss`, también en forks.
 El paquete de GHCR debe estar configurado como **público** para que los hosts de
@@ -140,7 +139,7 @@ pública no expone las credenciales de Postgres.
 
 El responsable del repositorio publicará los tags de ejemplo `0.1.0`, `0.1.1` y `0.1.0-snapshot` de `mvieitesr/hiss` antes de la práctica; usa un SHA8 publicado para dev. Para un fork propio, publica las imágenes allí y exporta `IMAGE`.
 
-Los archivos `deploy/*.env` están versionados y contienen sólo configuración no
+Los archivos `deploy/<env>.env` están versionados y contienen sólo configuración no
 secreta. Los valores predeterminados seleccionan tags distintos; los CD promocionan el mismo digest cuando los Release Tags apuntan al mismo commit:
 
 | Environment | Puerto publicado | `IMAGE_TAG` / `APP_VERSION` | `FEATURE_LABEL_FILTERING` | Proyecto Compose |
@@ -154,36 +153,50 @@ En CD, `IMAGE_TAG` recibe `tag@digest` y `APP_VERSION` solo el tag; son variable
 
 ### Credencial de Postgres
 
-`POSTGRES_PASSWORD` **nunca se versiona** ni aparece en los archivos de
-Environment. En local, inyéctala desde el entorno del proceso y despliega desde
-la raíz del repositorio:
+`POSTGRES_PASSWORD` **nunca se versiona** ni aparece en `deploy/<env>.env`.
+Desde la raíz, crea los tres ficheros locales ignorados por Git:
 
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
+cp deploy/secret.env.example deploy/dev.secret.env
+cp deploy/secret.env.example deploy/staging.secret.env
+cp deploy/secret.env.example deploy/prod.secret.env
+chmod 600 deploy/dev.secret.env deploy/staging.secret.env deploy/prod.secret.env
+```
+
+Edita cada copia y rellena su única variable, `POSTGRES_PASSWORD`, sin escribir
+la contraseña en un comando del shell. Si contiene `$`, pon el valor entre
+comillas simples en el fichero. Usa el mismo valor que guarda el GitHub
+Environment correspondiente; cada Environment puede tener uno distinto.
+
+Pasa primero la configuración y después el secreto: el segundo `--env-file`
+tiene precedencia sobre el primero. Usa ambos en todos los comandos, incluidos
+`ps`, `logs` y `down`: qué comandos toleran la ausencia del secreto depende de
+la versión de Compose. `config`, `pull` y `up` siempre lo necesitan.
+
+```sh
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
 # Usa un SHA8 publicado en el GHCR elegido; APP_TAG no es una variable de Compose.
-docker compose --env-file deploy/dev.env -p hiss-dev up -d
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
 ```
 
 Para las otras Environments:
 
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
 unset IMAGE_TAG APP_VERSION  # usa los valores de cada env-file
-docker compose --env-file deploy/staging.env -p hiss-staging up -d
-docker compose --env-file deploy/prod.env -p hiss-prod up -d
+docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
 ```
 
 Las variables exportadas del shell tienen precedencia sobre los env-files; vuelve a exportar las de dev para sus ejemplos posteriores y elimínalas para usar los valores de staging o prod (`unset IMAGE_TAG APP_VERSION`). Si falta la contraseña, el tag o la versión, Compose falla en lugar de arrancar. En CI/CD, el
 workflow debe inyectar el mismo valor desde el secreto del GitHub Environment,
-sin escribirlo en el repositorio ni en `deploy/*.env`.
+sin escribirlo en el repositorio ni en `deploy/<env>.env`.
 
 La definición canónica también puede invocarse explícitamente con
 `-f deploy/compose.yml`; vuelve a exportar `IMAGE_TAG` y `APP_VERSION` con el SHA8 publicado antes de los comandos de dev:
 
 ```sh
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
 ```
 
 ### Red, probes y logs
@@ -198,8 +211,8 @@ Al iniciar el contenedor de la aplicación, el entrypoint ejecuta
 esté saludable y mantiene probes para liveness, readiness y versión:
 
 ```sh
-docker compose --env-file deploy/dev.env -p hiss-dev ps
-docker compose --env-file deploy/dev.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
 
 # Desde el host de dev:
 curl --fail http://localhost:8001/healthz
@@ -213,5 +226,5 @@ datos persistentes usa `down`; añade `-v` sólo cuando también quieras elimina
 su volumen de Postgres:
 
 ```sh
-docker compose --env-file deploy/dev.env -p hiss-dev down
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down
 ```

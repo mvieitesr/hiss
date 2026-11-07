@@ -205,7 +205,8 @@ runner como `Offline` y los workflows quedarán encolados hasta que vuelva.
 ## GitHub Environments y secretos
 
 Los tres despliegues usan el mismo `deploy/compose.yml` con distinto
-`--env-file`. El secreto `POSTGRES_PASSWORD` nunca se versiona; cada
+`deploy/<env>.env`. En local se añade `--env-file deploy/<env>.secret.env`;
+el secreto `POSTGRES_PASSWORD` nunca se versiona. En CD, cada GitHub
 Environment lo inyecta en el runner.
 
 ### Crear los tres Environments
@@ -216,9 +217,12 @@ Environment lo inyecta en el runner.
 2. Crea `dev`, luego `staging`, luego `prod` (nombres en minúsculas,
    exactamente así: los workflows referencian `environment: dev|staging|prod`).
 3. En cada Environment, pulsa **Add environment secret** y añade
-   `POSTGRES_PASSWORD` con el mismo valor que usarás en local (por ejemplo
-   `elige-un-secreto-local`; en producción usa un secreto largo distinto
-   por Environment si lo prefieres, pero documenta cuál usas).
+   `POSTGRES_PASSWORD` con el valor de esa variable en `deploy/<env>.secret.env`,
+   no con la línea completa `POSTGRES_PASSWORD=...` ni con sus comillas.
+   [Copia `deploy/secret.env.example` para cada Environment, aplica `chmod 600`
+   y rellena cada fichero](secrets-and-config.md#en-local); usa comillas simples
+   en el fichero si el valor contiene `$`. Usa una contraseña larga y distinta
+   por Environment.
 4. Solo en `prod`: activa **Required reviewers** y añádete como revisor.
    Esto hace que `cd-prod.yml` y `rollback.yml` hacia `prod` pausen hasta
    tu aprobación — la diferencia entre Delivery y Deployment.
@@ -231,13 +235,18 @@ gh api --method PUT /repos/tu-usuario/hiss/environments/dev
 gh api --method PUT /repos/tu-usuario/hiss/environments/staging
 gh api --method PUT /repos/tu-usuario/hiss/environments/prod
 
-# Añade el secreto a cada Environment (te pedirá el valor de forma interactiva)
-gh secret set POSTGRES_PASSWORD --env dev
-gh secret set POSTGRES_PASSWORD --env staging
-gh secret set POSTGRES_PASSWORD --env prod
-# Para lectura desde stdin, omite --body (evita imprimir el secreto).
-# gh secret set POSTGRES_PASSWORD --env dev < fichero-secreto
+# Carga nombres y valores desde cada fichero dotenv preparado arriba
+gh secret set --env dev --env-file deploy/dev.secret.env
+gh secret set --env staging --env-file deploy/staging.secret.env
+gh secret set --env prod --env-file deploy/prod.secret.env
 ```
+
+`gh secret set --env <env> --env-file deploy/<env>.secret.env` carga nombres y
+valores de un fichero dotenv, según `gh secret set --help`. Las copias solo
+contienen `POSTGRES_PASSWORD`; no uses `gh secret set POSTGRES_PASSWORD < fichero`
+con una línea `KEY=value`, porque guardaría la línea completa como valor.
+Los comandos de carga escriben secretos en GitHub: ejecútalos solo al configurar
+tu repositorio y no imprimas el contenido de los ficheros.
 
 La CLI anterior crea el Environment pero no configura su revisor: activa **Required reviewers** en `prod` en la interfaz web antes de continuar. Confirma que `gh` apunta a tu fork.
 

@@ -11,7 +11,7 @@ La app no lee ficheros de configuración por entorno. `create_app` en `app/app/_
 arrancar sin entorno completo (`sqlite:///:memory:` para tests,
 `APP_VERSION=dev`).
 
-## `deploy/*.env` — configuración versionada no secreta
+## `deploy/<env>.env` — configuración versionada no secreta
 
 Tres ficheros idénticos en estructura, distintos en cinco valores.
 Están en Git y se pueden auditar:
@@ -27,15 +27,12 @@ Están en Git y se pueden auditar:
 | `POSTGRES_DB` | `hiss` | `hiss` | `hiss` |
 | `POSTGRES_USER` | `postgres` | `postgres` | `postgres` |
 
-Todos declaran:
-
-```
-# Hiss — Environment config (committed, non-secret)
-# DB password is injected at deploy time — never committed.
-```
+Todos identifican su configuración como no secreta y remiten a
+`deploy/<env>.secret.env` y `deploy/secret.env.example` para la contraseña local.
 
 `IMAGE` es parametrizable: puedes sobreescribirlo en el shell para
-validar otro registro sin editar el repo:
+validar otro registro sin editar el repo. Esta validación usa `dummy`, una
+contraseña ficticia, y omite a propósito el fichero secreto local:
 
 ```sh
 POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef IMAGE=ghcr.io/otro/hiss \
@@ -44,10 +41,11 @@ POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef IMAGE=ghcr.io/ot
 
 Las variables son independientes: en dev ambas se inyectan con SHA8; en CD `IMAGE_TAG` incluye `tag@digest` y `APP_VERSION` solo el tag. `APP_TAG` no se usa. `/version` devuelve `APP_VERSION`, no demuestra el digest. Los workflows derivan `IMAGE` del dueño del repositorio en minúsculas; el `.env` solo es el valor manual por defecto. Los tags de ejemplo `0.1.0`, `0.1.1` y `0.1.0-snapshot` de `mvieitesr/hiss` los publicará el responsable del repositorio antes de la práctica.
 
-Comprueba que ningún `.env` contiene secretos:
+Comprueba solo los ficheros versionados: `git grep` no inspecciona tus copias
+locales ignoradas ni considera un valor vacío en `deploy/secret.env.example`.
 
 ```sh
-grep -n '^POSTGRES_PASSWORD=' deploy/*.env || echo "ok: ningún secreto versionado"
+git grep -nE '^POSTGRES_PASSWORD=.' -- 'deploy/*.env' || echo "ok: ningún secreto versionado"
 cat deploy/dev.env
 cat deploy/staging.env
 cat deploy/prod.env
@@ -74,18 +72,37 @@ accesible como `db:5432` dentro de la red de Compose.
 
 ### En local
 
-Inyecta la contraseña desde el entorno del proceso:
+Desde la raíz del repositorio, copia la plantilla para cada Environment y
+restringe los permisos de las copias:
 
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
+cp deploy/secret.env.example deploy/dev.secret.env
+cp deploy/secret.env.example deploy/staging.secret.env
+cp deploy/secret.env.example deploy/prod.secret.env
+chmod 600 deploy/dev.secret.env deploy/staging.secret.env deploy/prod.secret.env
+```
+
+Edita cada `deploy/<env>.secret.env` y rellena únicamente `POSTGRES_PASSWORD`.
+Las copias están ignoradas por Git; no escribas la contraseña en comandos ni
+la exportes. Si el valor contiene `$`, ponlo entre comillas simples en el
+fichero para que Compose lo reciba literal.
+
+Pasa los dos `--env-file` en cada comando, primero `deploy/<env>.env` y después
+`deploy/<env>.secret.env`: el último tiene precedencia. La tolerancia de `ps`,
+`logs` o `down` a la ausencia del secreto depende de la versión de Compose;
+`config`, `pull` y `up` siempre lo necesitan. Mantén ambos ficheros incluso en
+los comandos de observabilidad y limpieza. Evita una contraseña exportada en
+el shell: las variables del shell tienen precedencia sobre ambos ficheros.
+
+```sh
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose --env-file deploy/dev.env -p hiss-dev up -d
-docker compose --env-file deploy/dev.env -p hiss-dev ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
 
 # Para staging/prod usa sus valores del env-file
 unset IMAGE_TAG APP_VERSION
-docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging up -d
-docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
 
 # Restablece valores de dev antes de cualquier comando Compose de dev
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
@@ -96,8 +113,8 @@ curl --fail http://localhost:8001/readyz | jq .  # hace SELECT 1 real con la con
 Para detener sin borrar datos:
 
 ```sh
-docker compose --env-file deploy/dev.env -p hiss-dev down      # mantiene pgdata
-docker compose --env-file deploy/dev.env -p hiss-dev down -v   # borra volumen de ese Environment
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down      # mantiene pgdata
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down -v   # borra volumen de ese Environment
 ```
 
 ### En CI/CD
@@ -126,7 +143,7 @@ Configura el secreto por Environment en **Settings → Environments → dev/stag
 Environment secrets → POSTGRES_PASSWORD** (ver `docs/setup.md`). `prod`
 además tiene `Required reviewers` — el despliegue pausa hasta aprobación.
 
-El secreto no se escribe en `deploy/*.env`. Evita mostrar `docker compose config` o `inspect` con secretos reales: contienen valores interpolados. Un paquete privado requiere autenticación de Docker en el runner; un paquete público permite pull anónimo (ver `docs/setup.md`).
+El secreto de CI no se escribe en `deploy/<env>.env`. Evita mostrar `docker compose config` o `inspect` con secretos reales: contienen valores interpolados. Un paquete privado requiere autenticación de Docker en el runner; un paquete público permite pull anónimo (ver `docs/setup.md`).
 
 ## Feature Flag — `FEATURE_LABEL_FILTERING`
 
@@ -161,23 +178,22 @@ Pruebas en `app/tests/test_probes_version_flag.py`:
 Si la API devuelve `feature_disabled`, la SPA retira el filtro de Label, conserva los demás filtros y recarga mostrando un aviso. Para probar localmente, crea `PRJ` en cada base independiente (o usa otra key si ya existe):
 
 ```sh
-# Con filtrado activo (dev/staging)
-export POSTGRES_PASSWORD='elige-un-secreto-local'
+# Con filtrado activo (dev/staging); usa los ficheros secretos preparados arriba
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose --env-file deploy/dev.env -p hiss-dev up -d --wait --wait-timeout 60
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d --wait --wait-timeout 60
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{"key":"PRJ","name":"Proyecto"}' http://localhost:8001/api/v1/projects
 curl -s http://localhost:8001/api/v1/projects/PRJ/issues?label=bug | jq .
 
 # Con filtrado desactivado (prod)
 unset IMAGE_TAG APP_VERSION
-docker compose --env-file deploy/prod.env -p hiss-prod up -d --wait --wait-timeout 60
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d --wait --wait-timeout 60
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{"key":"PRJ","name":"Proyecto"}' http://localhost:8003/api/v1/projects
 curl -s http://localhost:8003/api/v1/projects/PRJ/issues?label=bug | jq .
 # → {"error":"feature_disabled","message":"label filtering is disabled (FEATURE_LABEL_FILTERING=false)"}  (400)
 
 # Sobrescribir sin editar .env
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-FEATURE_LABEL_FILTERING=false docker compose --env-file deploy/dev.env -p hiss-dev up -d
+FEATURE_LABEL_FILTERING=false docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
 ```
 
 La flag demuestra el patrón 12-factor: el mismo artefacto
@@ -186,9 +202,13 @@ lo ejecuta.
 
 ## Resumen de verificación
 
+Las validaciones con `dummy` usan un valor ficticio y omiten intencionadamente
+el fichero secreto para no leer ni mostrar una contraseña real. La prueba
+negativa también lo omite y elimina `POSTGRES_PASSWORD` del entorno del proceso.
+
 ```sh
 # Ningún secreto en ficheros versionados
-grep -n '^POSTGRES_PASSWORD=' deploy/*.env && echo "ERROR" || echo "ok"
+git grep -nE '^POSTGRES_PASSWORD=.' -- 'deploy/*.env' && echo "ERROR" || echo "ok"
 
 # Config por Environment visible y parametrizable
 cat deploy/dev.env | grep -E "IMAGE|APP_PORT|FEATURE_LABEL_FILTERING"
@@ -198,17 +218,16 @@ POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef IMAGE=example.in
 # Compose valida presencia del secreto
 POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef docker compose --env-file deploy/dev.env -p hiss-docs-check config -q && echo "config ok"
 # Sin contraseña debe fallar
-POSTGRES_PASSWORD= IMAGE_TAG=deadbeef APP_VERSION=deadbeef docker compose --env-file deploy/dev.env -p hiss-docs-check config -q && echo "debe fallar" || echo "falla como debe"
+env -u POSTGRES_PASSWORD IMAGE_TAG=deadbeef APP_VERSION=deadbeef docker compose --env-file deploy/dev.env -p hiss-docs-check config -q && echo "debe fallar" || echo "falla como debe"
 
 # Feature flag en código y tests
 grep -n FEATURE_LABEL_FILTERING app/app/__init__.py
 grep -n FEATURE_LABEL_FILTERING app/tests/test_probes_version_flag.py
 grep -n FEATURE_LABEL_FILTERING deploy/*.env
 
-# Despliegue con secreto inyectado
-export POSTGRES_PASSWORD='elige-un-secreto-local'
+# Despliegue con deploy/dev.secret.env preparado arriba
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d --wait --wait-timeout 60
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d --wait --wait-timeout 60
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .

@@ -6,7 +6,7 @@ inmutable y cómo se aprueba `prod` y se ejecuta un rollback. Cada paso
 requiere los artefactos, credenciales y ajustes indicados antes de ejecutar los comandos.
 
 > Requisitos: runner autoalojado operativo y Environments `dev`/`staging`/`prod`
-> configurados. Ver [`docs/setup.md`](setup.md) y [`docs/pipeline.md`](pipeline.md). Para los comandos Compose, exporta la contraseña del Environment correspondiente; `ps` y `logs` también interpolan la configuración. Selecciona tu fork en `gh`. El responsable del repositorio publicará las imágenes de ejemplo `0.1.0`, `0.1.1` y `0.1.0-snapshot` de `mvieitesr/hiss` antes de la práctica.
+> configurados. Ver [`docs/setup.md`](setup.md) y [`docs/pipeline.md`](pipeline.md). Para los comandos Compose locales, [prepara los tres `deploy/<env>.secret.env` desde la plantilla y aplica `chmod 600`](secrets-and-config.md#en-local). Si el valor contiene `$`, usa comillas simples en el fichero. Pasa ambos `--env-file` en cada comando: la tolerancia a la ausencia del secreto varía según la versión de Compose; `config`, `pull` y `up` siempre lo necesitan. Selecciona tu fork en `gh`. El responsable del repositorio publicará las imágenes de ejemplo `0.1.0`, `0.1.1` y `0.1.0-snapshot` de `mvieitesr/hiss` antes de la práctica.
 
 ## Artefacto, tags y ciclo de vida
 
@@ -58,7 +58,7 @@ gh run list --workflow cd-staging.yml --limit 3
 gh run watch --exit-status  # espera a que termine
 curl --fail http://localhost:8002/version | jq .
 # {"version":"0.2.0-snapshot"}
-docker compose --env-file deploy/staging.env -p hiss-staging ps
+docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging ps
 ```
 
 Si el smoke test falla, corrige en `main`, espera a `ci.yml` y repite el
@@ -95,13 +95,13 @@ los mensajes de release.
 
 ### 3. Promover a `X.Y.Z` inmutable
 
-`cd-staging.yml` promociona el digest SHA8 y después hace `pull` y `up -d --no-build --pull never`. Fragmento equivalente en terminal, con `IMAGE`, `DIGEST` y `POSTGRES_PASSWORD` ya exportados (las expresiones `secrets.*` solo funcionan dentro de Actions):
+`cd-staging.yml` promociona el digest SHA8 y después hace `pull` y `up -d --no-build --pull never`. Fragmento equivalente en terminal, con `IMAGE` y `DIGEST` ya exportados y `deploy/staging.secret.env` preparado (las expresiones `secrets.*` solo funcionan dentro de Actions):
 
 ```sh
 IMAGE_TAG="0.2.0-snapshot@$DIGEST" APP_VERSION=0.2.0-snapshot \
-  docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging pull
+  docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging pull
 IMAGE_TAG="0.2.0-snapshot@$DIGEST" APP_VERSION=0.2.0-snapshot \
-  docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging up -d --no-build --pull never
+  docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d --no-build --pull never --wait --wait-timeout 60
 curl --fail http://localhost:8002/healthz | jq .
 ```
 
@@ -139,7 +139,7 @@ gh run view <run-id>  # consulta el estado; revisa la aprobación pendiente en l
 gh run watch --exit-status
 curl --fail http://localhost:8003/version | jq .
 # {"version":"0.2.0"}
-docker compose --env-file deploy/prod.env -p hiss-prod ps
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod ps
 curl --fail http://localhost:8003/healthz | jq .
 curl --fail http://localhost:8003/readyz  | jq .
 ```
@@ -185,7 +185,7 @@ gh run view <run-id> --log-failed
 
 # verificar
 curl --fail http://localhost:8003/version | jq .
-docker compose --env-file deploy/prod.env -p hiss-prod ps
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod ps
 ```
 
 Para `dev` y `staging` el rollback es inmediato; para `prod` vuelve a
@@ -221,15 +221,15 @@ pausar por el gate de Environment.
 En local el mismo despliegue es:
 
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
+# Usa los tres deploy/<env>.secret.env preparados al inicio
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
 unset IMAGE_TAG APP_VERSION  # usa los tags de los env-files
-docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging pull
-docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging up -d
-docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod pull
-docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging pull
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod pull
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
 ```
 
 Ver también [`docs/pipeline.md`](pipeline.md) para el flujo de workflows y

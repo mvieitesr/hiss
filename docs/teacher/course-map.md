@@ -39,13 +39,16 @@ exactas pueden desplazarse; el `grep` indicado lo localiza.
 | **Pipeline as code — workflows en YAML versionados** | `.github/workflows/ci.yml` (7 jobs en `ubuntu-latest`), `.github/workflows/cd-dev.yml`/`cd-staging.yml`/`cd-prod.yml`/`rollback.yml` (self-hosted), `.github/workflows/_build-push.yml` (reusable) | `ls .github/workflows/*.yml` + `cat .github/workflows/ci.yml` |
 | **Jobs — lint, test, build como grafo de dependencias** | `ci.yml:jobs: lint-pipeline` (actionlint + Compose, siempre); `changes` (`dorny/paths-filter@v3` con `app`/`cli`/`shared`) → `lint` (`ruff==0.9.10`), `lint-docker` (`hadolint`), `test-app` (`postgres:17-alpine` + `alembic upgrade head` + `pytest app/tests`), `test-cli`, `build` (`docker build -f app/Dockerfile app/`) | `grep -n "needs: changes\|dorny/paths-filter\|hadolint\|postgres:17-alpine" .github/workflows/ci.yml` |
 | **GHCR tagging y promoción por digest** | `_build-push.yml:jobs:build` deriva `IMAGE` del dueño; construye o promociona un digest existente según `source_tag` + `docs/secrets-and-config.md` | `grep -En 'GITHUB_REPOSITORY_OWNER\|source_tag\|digest' .github/workflows/_build-push.yml` |
-| **Secrets — `POSTGRES_PASSWORD` nunca versionada** | `deploy/*.env` (sin `POSTGRES_PASSWORD`), `deploy/compose.yml` (`POSTGRES_PASSWORD:?must be set`, `DATABASE_URL: postgresql://...@db:5432/`), `cd-*.yml:env: POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}`, `docs/secrets-and-config.md` (12-factor) + `docs/setup.md:GitHub Environments` | `grep -n '^POSTGRES_PASSWORD=' deploy/*.env \|\| echo "ok"` + `grep -n "secrets.POSTGRES_PASSWORD" .github/workflows/cd-dev.yml` |
+| **Secrets — `POSTGRES_PASSWORD` nunca versionada** | `deploy/<env>.env` (sin secretos) y `deploy/<env>.secret.env` (ignorado, creado desde `deploy/secret.env.example`), `deploy/compose.yml` (`POSTGRES_PASSWORD:?must be set`, `DATABASE_URL: postgresql://...@db:5432/`), `cd-*.yml:env: POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}`, `docs/secrets-and-config.md` (12-factor) + `docs/setup.md:GitHub Environments` | `git grep -nE '^POSTGRES_PASSWORD=.' -- 'deploy/*.env' \|\| echo "ok"` + `grep -n "secrets.POSTGRES_PASSWORD" .github/workflows/cd-dev.yml` |
 
 **Check rápido del bloque B en clase:**
 
+La validación usa `dummy`, un valor ficticio; omite el fichero secreto a propósito.
+`git grep` solo comprueba los ficheros versionados, no los secretos locales ignorados.
+
 ```sh
 POSTGRES_PASSWORD=dummy IMAGE_TAG=deadbeef APP_VERSION=deadbeef docker compose --env-file deploy/dev.env -p hiss-docs-check config -q && echo "compose ok"
-grep -n '^POSTGRES_PASSWORD=' deploy/*.env && echo "fail" || echo "ok: sin secreto versionado"
+git grep -nE '^POSTGRES_PASSWORD=.' -- 'deploy/*.env' && echo "fail" || echo "ok: sin secreto versionado"
 gh secret list --env dev | grep POSTGRES_PASSWORD
 ```
 
@@ -79,14 +82,19 @@ gh secret list --env dev | grep POSTGRES_PASSWORD
 
 **Comandos de verificación del bloque D en clase:**
 
+[Prepara `deploy/dev.secret.env` desde `deploy/secret.env.example` y aplica
+`chmod 600`](../secrets-and-config.md#en-local); si el valor contiene `$`, usa
+comillas simples en el fichero. Pasa ambos env-files en cada comando: la
+tolerancia a la ausencia del secreto varía según la versión de Compose;
+`config`, `pull` y `up` siempre lo necesitan.
+
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .
-docker compose --env-file deploy/dev.env -p hiss-dev ps
-docker compose --env-file deploy/dev.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
 gh workflow run rollback.yml -f environment=prod -f tag=0.1.0
 ```
 

@@ -26,17 +26,23 @@ La estrategia más simple y la que usan `cd-dev.yml`, `cd-staging.yml`,
 `cd-prod.yml` y `rollback.yml`: `docker compose up -d` para un
 Environment reemplaza el contenedor `app` en el mismo host.
 
+Para los ejemplos locales de `deploy/compose.yml`, [prepara los tres
+`deploy/<env>.secret.env` copiando la plantilla y aplicando `chmod 600`](secrets-and-config.md#en-local).
+Si la contraseña contiene `$`, usa comillas simples en el fichero. Pasa ambos
+`--env-file` también en `ps`, `logs` y `down`: qué comandos toleran la ausencia
+del secreto depende de la versión de Compose; `config`, `pull` y `up` siempre
+lo necesitan. Los tags usados deben estar publicados en el registro elegido.
+
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
 unset IMAGE_TAG APP_VERSION  # usa los valores del env-file de prod
-docker compose --env-file deploy/prod.env -p hiss-prod up -d
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
 # o explícito:
-docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod pull
-docker compose -f deploy/compose.yml --env-file deploy/prod.env -p hiss-prod up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod pull
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
 # mismo patrón en dev:8001 (SHA8 publicado)
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull
-docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d --wait --wait-timeout 60
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .
@@ -277,14 +283,14 @@ El curso no despliega Prometheus/Grafana/Loki ni ArgoCD — son teoría. La
 supervisión honesta del repo es:
 
 ```sh
-export POSTGRES_PASSWORD='elige-un-secreto-local'
+# Usa deploy/dev.secret.env preparado en la sección Recreate
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose --env-file deploy/dev.env -p hiss-dev ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
 #   NAME                STATUS              PORTS
 #   hiss-dev-app-1      Up (healthy)        0.0.0.0:8001->8000/tcp
 #   hiss-dev-db-1       Up (healthy)
 
-docker compose --env-file deploy/dev.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
 # ... alembic upgrade head ... Booting worker ... Listening at ...
 
 curl --fail http://localhost:8001/healthz | jq .
