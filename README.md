@@ -102,7 +102,7 @@ La API usa `/api/v1`. Los cuerpos de creación y edición deben ser objetos JSON
 | [`docs/environments.md`](docs/environments.md) | 4 entornos del temario → 3 despliegues `hiss-dev:8001`/`hiss-staging:8002`/`hiss-prod:8003` + QA efímero (`test-app` service container `postgres:17-alpine`), tablas `IMAGE_TAG`/`APP_VERSION`/`FEATURE_LABEL_FILTERING`, `COMPOSE_PROJECT_NAME` |
 | [`docs/release-process.md`](docs/release-process.md) | Runbook `X.Y.Z-snapshot` móvil (`git tag -d`+`push --delete`+`git tag X.Y.Z-snapshot && git push`), endurecer, `X.Y.Z` inmutable, aprobar `prod`, `rollback.yml` |
 | [`docs/deployment-strategies.md`](docs/deployment-strategies.md) | Recreate / Rolling / Blue-Green / Canary con Mermaid, demo `deploy/blue-green/` en `:9000` (`switch.sh` `status`/`switch`/`deploy`/`rollback`, `curl :9000/version`), migración `0002` aditiva |
-| [`docs/secrets-and-config.md`](docs/secrets-and-config.md) | 12-factor, `deploy/*.env` versionados vs `POSTGRES_PASSWORD` inyectada (`secrets.POSTGRES_PASSWORD`), `FEATURE_LABEL_FILTERING` (`true`/`true`/`false`, `app/app/config.py`, `test_probes_version_flag.py`) |
+| [`docs/secrets-and-config.md`](docs/secrets-and-config.md) | 12-factor, `deploy/<env>.env` versionados vs `deploy/<env>.secret.env` local ignorado y `POSTGRES_PASSWORD` inyectada en CD (`secrets.POSTGRES_PASSWORD`), `FEATURE_LABEL_FILTERING` (`true`/`true`/`false`, `app/app/config.py`, `test_probes_version_flag.py`) |
 
 **Material para el profesor — `docs/teacher/` (teacher-only, no es parte del recorrido del alumno):**
 

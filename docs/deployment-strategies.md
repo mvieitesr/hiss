@@ -13,7 +13,7 @@ probarla en el repo.
 
 | Estrategia | Downtime | Qué necesita | Dónde probarla |
 | --- | --- | --- | --- |
-| **Recreate** | sí — segundos de no disponibilidad | solo Compose | `deploy/compose.yml` + `deploy/*.env` |
+| **Recreate** | sí — segundos de no disponibilidad | solo Compose | `deploy/compose.yml` + `deploy/<env>.env` |
 | **Rolling** | no — reemplazo progresivo | orquestador con réplicas | teoría (K8s `RollingUpdate`) |
 | **Blue-Green** | no — corte instantáneo vía proxy | 2 entornos + proxy | `deploy/blue-green/` en `:9000` |
 | **Canary** | no — porcentaje de tráfico | orquestador/mesh + métricas | teoría (pesos y análisis) |
