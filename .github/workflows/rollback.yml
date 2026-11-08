@@ -52,25 +52,25 @@ jobs:
         run: |
           set -euo pipefail
           case "$TARGET_ENV" in
-            dev) env_file=dev.env; project=hiss-dev ;;
-            staging) env_file=staging.env; project=hiss-staging ;;
-            prod) env_file=prod.env; project=hiss-prod ;;
+            dev) env_file=dev.env ;;
+            staging) env_file=staging.env ;;
+            prod) env_file=prod.env ;;
             *) echo "Unsupported environment: $TARGET_ENV" >&2; exit 1 ;;
           esac
           POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
-            docker compose -f deploy/compose.yml --env-file "deploy/$env_file" -p "$project" pull
+            docker compose -f deploy/compose.yml --env-file "deploy/$env_file" pull
       - name: Start selected services
         shell: bash
         run: |
           set -euo pipefail
           case "$TARGET_ENV" in
-            dev) env_file=dev.env; project=hiss-dev ;;
-            staging) env_file=staging.env; project=hiss-staging ;;
-            prod) env_file=prod.env; project=hiss-prod ;;
+            dev) env_file=dev.env ;;
+            staging) env_file=staging.env ;;
+            prod) env_file=prod.env ;;
             *) echo "Unsupported environment: $TARGET_ENV" >&2; exit 1 ;;
           esac
           POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG" APP_VERSION="$DEPLOY_TAG" \
-            docker compose -f deploy/compose.yml --env-file "deploy/$env_file" -p "$project" up -d --no-build --pull never
+            docker compose -f deploy/compose.yml --env-file "deploy/$env_file" up -d --no-build --pull never
 
   smoke-test:
     name: Smoke test ${{ inputs.environment }} rollback

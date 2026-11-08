@@ -107,13 +107,13 @@ jobs:
         run: |
           set -euo pipefail
           POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
-            docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging pull
+            docker compose -f deploy/compose.yml --env-file deploy/staging.env pull
       - name: Start staging services
         shell: bash
         run: |
           set -euo pipefail
           POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
-            docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging up -d --no-build --pull never
+            docker compose -f deploy/compose.yml --env-file deploy/staging.env up -d --no-build --pull never
 
   smoke-test:
     name: Smoke test staging
