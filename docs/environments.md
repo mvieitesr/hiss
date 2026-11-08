@@ -31,13 +31,13 @@ Los tres despliegues pueden coexistir en el mismo host:
 
 ```sh
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
 unset IMAGE_TAG APP_VERSION  # usa los tags de cada env-file para staging/prod
-docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
-docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
-IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
-docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging ps
-docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod ps
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d
+IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env ps
+docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env ps
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env ps
 ```
 
 El responsable del repositorio publicará `0.1.0-snapshot` y `0.1.0` en `ghcr.io/mvieitesr/hiss` antes de la práctica; usa un SHA8 publicado para dev. Para un fork exporta `IMAGE=ghcr.io/<dueño-en-minúsculas>/hiss`. Consulta [`docs/setup.md`](setup.md) para la guía completa.
@@ -59,6 +59,7 @@ export IMAGE="ghcr.io/$OWNER/hiss"
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)-manual"
 export APP_VERSION="$IMAGE_TAG"
 export APP_PORT=8011
+export COMPOSE_PROJECT_NAME=hiss-localstack  # proyecto desechable, separado de hiss-dev
 # El token se lee sin eco; usa configuración Docker temporal. Docker puede usar
 # un gestor de credenciales del sistema si está disponible.
 export DOCKER_CONFIG="$(mktemp -d)"
@@ -68,16 +69,16 @@ unset GHCR_TOKEN
 
 docker build -f app/Dockerfile -t "$IMAGE:$IMAGE_TAG" app/
 docker push "$IMAGE:$IMAGE_TAG"
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-localstack pull
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-localstack up -d --no-build --pull never --wait --wait-timeout 60
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d --no-build --pull never --wait --wait-timeout 60
 curl --fail http://localhost:8011/healthz
 curl --fail http://localhost:8011/readyz
 curl --fail http://localhost:8011/version
 # Borra la configuración temporal de Docker cuando termines los pulls.
 rm -rf "$DOCKER_CONFIG"; unset DOCKER_CONFIG
 # down -v elimina también la base de este proyecto desechable:
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-localstack down -v
-unset OWNER IMAGE IMAGE_TAG APP_VERSION APP_PORT
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env down -v
+unset OWNER IMAGE IMAGE_TAG APP_VERSION APP_PORT COMPOSE_PROJECT_NAME
 ```
 
 La imagen manual puede tener un digest distinto al de CD aunque comparta fuente. El sufijo `-manual` evita pisar el SHA8 de CD; la promoción de CD también exige la etiqueta OCI de revisión generada por su build. Revisa los permisos y la visibilidad del paquete como indica [`docs/setup.md`](setup.md). El token y la configuración Docker temporal son sensibles mientras existan.
@@ -104,7 +105,7 @@ El shell puede sobrescribir `IMAGE` y los demás valores del env-file. En CD, `I
 
 ```sh
 IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
-  docker compose -f deploy/compose.yml --env-file deploy/staging.env -p hiss-staging pull
+  docker compose -f deploy/compose.yml --env-file deploy/staging.env pull
 ```
 
 `/version` solo refleja `APP_VERSION`, no prueba el digest ni la revisión por sí sola. `APP_TAG` no existe como variable de Compose.
@@ -163,8 +164,8 @@ otros:
 ```sh
 # Usa deploy/dev.secret.env preparado al inicio del recorrido
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down      # mantiene pgdata
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down -v   # borra pgdata de dev
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env down      # mantiene pgdata
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env down -v   # borra pgdata de dev
 ```
 
 > Nota: la demo blue-green (`deploy/blue-green/compose.yml`) usa

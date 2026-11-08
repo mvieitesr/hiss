@@ -58,7 +58,7 @@ gh run list --workflow cd-staging.yml --limit 3
 gh run watch --exit-status  # espera a que termine
 curl --fail http://localhost:8002/version | jq .
 # {"version":"0.2.0-snapshot"}
-docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging ps
+docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env ps
 ```
 
 Si el smoke test falla, corrige en `main`, espera a `ci.yml` y repite el
@@ -99,9 +99,9 @@ los mensajes de release.
 
 ```sh
 IMAGE_TAG="0.2.0-snapshot@$DIGEST" APP_VERSION=0.2.0-snapshot \
-  docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging pull
+  docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env pull
 IMAGE_TAG="0.2.0-snapshot@$DIGEST" APP_VERSION=0.2.0-snapshot \
-  docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d --no-build --pull never --wait --wait-timeout 60
+  docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env up -d --no-build --pull never --wait --wait-timeout 60
 curl --fail http://localhost:8002/healthz | jq .
 ```
 
@@ -139,7 +139,7 @@ gh run view <run-id>  # consulta el estado; revisa la aprobación pendiente en l
 gh run watch --exit-status
 curl --fail http://localhost:8003/version | jq .
 # {"version":"0.2.0"}
-docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod ps
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env ps
 curl --fail http://localhost:8003/healthz | jq .
 curl --fail http://localhost:8003/readyz  | jq .
 ```
@@ -185,7 +185,7 @@ gh run view <run-id> --log-failed
 
 # verificar
 curl --fail http://localhost:8003/version | jq .
-docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod ps
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env ps
 ```
 
 Para `dev` y `staging` el rollback es inmediato; para `prod` vuelve a
@@ -223,13 +223,13 @@ En local el mismo despliegue es:
 ```sh
 # Usa los tres deploy/<env>.secret.env preparados al inicio
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev pull
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
 unset IMAGE_TAG APP_VERSION  # usa los tags de los env-files
-docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging pull
-docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
-docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod pull
-docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env pull
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env pull
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d
 ```
 
 Ver también [`docs/pipeline.md`](pipeline.md) para el flujo de workflows y

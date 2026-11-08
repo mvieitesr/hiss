@@ -72,8 +72,8 @@ curl --fail http://localhost:8001/version | jq .  # {"version":"<SHA8>"}
 
 # 5. Observabilidad básica: pasa ambos env-files también en ps/logs
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env logs -f app
 curl --fail http://localhost:8001/readyz | jq .
 ```
 
@@ -176,15 +176,15 @@ la versión de Compose. `config`, `pull` y `up` siempre lo necesitan.
 ```sh
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
 # Usa un SHA8 publicado en el GHCR elegido; APP_TAG no es una variable de Compose.
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
 ```
 
 Para las otras Environments:
 
 ```sh
 unset IMAGE_TAG APP_VERSION  # usa los valores de cada env-file
-docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
-docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env up -d
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d
 ```
 
 Las variables exportadas del shell tienen precedencia sobre los env-files; vuelve a exportar las de dev para sus ejemplos posteriores y elimínalas para usar los valores de staging o prod (`unset IMAGE_TAG APP_VERSION`). Si falta la contraseña, el tag o la versión, Compose falla en lugar de arrancar. En CI/CD, el
@@ -196,7 +196,7 @@ La definición canónica también puede invocarse explícitamente con
 
 ```sh
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
 ```
 
 ### Red, probes y logs
@@ -211,8 +211,8 @@ Al iniciar el contenedor de la aplicación, el entrypoint ejecuta
 esté saludable y mantiene probes para liveness, readiness y versión:
 
 ```sh
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env logs -f app
 
 # Desde el host de dev:
 curl --fail http://localhost:8001/healthz
@@ -226,5 +226,5 @@ datos persistentes usa `down`; añade `-v` sólo cuando también quieras elimina
 su volumen de Postgres:
 
 ```sh
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env down
 ```

@@ -2,8 +2,8 @@
 # Teaching demo: multi-service, healthchecks, named volume, env-file config.
 # Usage (the password comes from deploy/<env>.secret.env, see deploy/secret.env.example):
 #   docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
-#   docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
-#   docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+#   docker compose --env-file deploy/staging.env --env-file deploy/staging.secret.env up -d
+#   docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d
 # COMPOSE_PROJECT_NAME and IMAGE are mandatory (set in deploy/<env>.env): a command without the
 # environment file fails instead of acting on another environment's containers and volumes.
 name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be set (see deploy/<env>.env)}

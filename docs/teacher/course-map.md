@@ -93,8 +93,8 @@ export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse 
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env logs -f app
 gh workflow run rollback.yml -f environment=prod -f tag=0.1.0
 ```
 

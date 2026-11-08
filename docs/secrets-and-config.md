@@ -96,13 +96,13 @@ el shell: las variables del shell tienen precedencia sobre ambos ficheros.
 
 ```sh
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env ps
 
 # Para staging/prod usa sus valores del env-file
 unset IMAGE_TAG APP_VERSION
-docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env -p hiss-staging up -d
-docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+docker compose -f deploy/compose.yml --env-file deploy/staging.env --env-file deploy/staging.secret.env up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d
 
 # Restablece valores de dev antes de cualquier comando Compose de dev
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
@@ -113,8 +113,8 @@ curl --fail http://localhost:8001/readyz | jq .  # hace SELECT 1 real con la con
 Para detener sin borrar datos:
 
 ```sh
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down      # mantiene pgdata
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev down -v   # borra volumen de ese Environment
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env down      # mantiene pgdata
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env down -v   # borra volumen de ese Environment
 ```
 
 ### En CI/CD
@@ -134,9 +134,9 @@ deploy:
   steps:
     - run: |
         POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
-          docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev pull
+          docker compose -f deploy/compose.yml --env-file deploy/dev.env pull
         POSTGRES_PASSWORD="$POSTGRES_PASSWORD" IMAGE_TAG="$DEPLOY_TAG@$DIGEST" APP_VERSION="$DEPLOY_TAG" \
-          docker compose -f deploy/compose.yml --env-file deploy/dev.env -p hiss-dev up -d --no-build --pull never
+          docker compose -f deploy/compose.yml --env-file deploy/dev.env up -d --no-build --pull never
 ```
 
 Configura el secreto por Environment en **Settings → Environments → dev/staging/prod →
@@ -180,20 +180,20 @@ Si la API devuelve `feature_disabled`, la SPA retira el filtro de Label, conserv
 ```sh
 # Con filtrado activo (dev/staging); usa los ficheros secretos preparados arriba
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d --wait --wait-timeout 60
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d --wait --wait-timeout 60
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{"key":"PRJ","name":"Proyecto"}' http://localhost:8001/api/v1/projects
 curl -s http://localhost:8001/api/v1/projects/PRJ/issues?label=bug | jq .
 
 # Con filtrado desactivado (prod)
 unset IMAGE_TAG APP_VERSION
-docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d --wait --wait-timeout 60
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d --wait --wait-timeout 60
 curl -fsS -X POST -H 'Content-Type: application/json' -d '{"key":"PRJ","name":"Proyecto"}' http://localhost:8003/api/v1/projects
 curl -s http://localhost:8003/api/v1/projects/PRJ/issues?label=bug | jq .
 # → {"error":"feature_disabled","message":"label filtering is disabled (FEATURE_LABEL_FILTERING=false)"}  (400)
 
 # Sobrescribir sin editar .env
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-FEATURE_LABEL_FILTERING=false docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d
+FEATURE_LABEL_FILTERING=false docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d
 ```
 
 La flag demuestra el patrón 12-factor: el mismo artefacto
@@ -227,7 +227,7 @@ grep -n FEATURE_LABEL_FILTERING deploy/*.env
 
 # Despliegue con deploy/dev.secret.env preparado arriba
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d --wait --wait-timeout 60
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d --wait --wait-timeout 60
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .

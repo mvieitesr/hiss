@@ -35,14 +35,14 @@ lo necesitan. Los tags usados deben estar publicados en el registro elegido.
 
 ```sh
 unset IMAGE_TAG APP_VERSION  # usa los valores del env-file de prod
-docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+docker compose --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d
 # o explícito:
-docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod pull
-docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env -p hiss-prod up -d
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env pull
+docker compose -f deploy/compose.yml --env-file deploy/prod.env --env-file deploy/prod.secret.env up -d
 # mismo patrón en dev:8001 (SHA8 publicado)
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)"
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev pull
-docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev up -d --wait --wait-timeout 60
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env pull
+docker compose -f deploy/compose.yml --env-file deploy/dev.env --env-file deploy/dev.secret.env up -d --wait --wait-timeout 60
 curl --fail http://localhost:8001/healthz | jq .
 curl --fail http://localhost:8001/readyz  | jq .
 curl --fail http://localhost:8001/version | jq .
@@ -285,12 +285,12 @@ supervisión honesta del repo es:
 ```sh
 # Usa deploy/dev.secret.env preparado en la sección Recreate
 export IMAGE_TAG="$(git rev-parse --short=8 HEAD)" APP_VERSION="$(git rev-parse --short=8 HEAD)" # SHA8 publicado
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev ps
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env ps
 #   NAME                STATUS              PORTS
 #   hiss-dev-app-1      Up (healthy)        0.0.0.0:8001->8000/tcp
 #   hiss-dev-db-1       Up (healthy)
 
-docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env -p hiss-dev logs -f app
+docker compose --env-file deploy/dev.env --env-file deploy/dev.secret.env logs -f app
 # ... alembic upgrade head ... Booting worker ... Listening at ...
 
 curl --fail http://localhost:8001/healthz | jq .
